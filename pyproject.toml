@@ -1,0 +1,93 @@
+[project]
+name = "pytest-exasol-benchmark"
+version = "0.1.0"
+description = ""
+authors = [
+    { name = "Exasol AG", email = "opensource@exasol.com" },
+]
+requires-python = ">=3.10,<4.0"
+readme = "README.rst"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = ["pytest-benchmark (>=5.2.3,<6.0.0)"]
+
+[dependency-groups]
+dev = [
+    "exasol-toolbox>=10.1.0,<11",
+]
+
+[tool.poetry]
+requires-poetry = ">=2.3.0"
+packages = [
+    { include = "exasol" },
+]
+include = [
+    "README.rst",
+    "doc/changes/changelog.md",
+    "LICENSE",
+    "exasol/toolbox/templates/**/*"
+]
+
+[tool.poetry.requires-plugins]
+poetry-plugin-export = ">=1.8"
+
+[project.urls]
+repository = "https://github.com/exasol/pytest-exasol-benchmark"
+homepage = "https://github.com/exasol/pytest-exasol-benchmark"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# Tooling - marking what to show in the documentation
+[tool.coverage.run]
+relative_files = true
+source = [
+    "exasol",
+]
+
+[tool.coverage.report]
+# Switch to 15 after code has been added
+fail_under = 0
+
+[tool.black]
+line-length = 88
+verbose = false
+include = "\\.pyi?$"
+
+[tool.isort]
+profile = "black"
+force_grid_wrap = 2
+
+[tool.pylint.master]
+fail-under = 5.0
+ignore = []
+
+[tool.pylint.format]
+max-line-length = 88
+max-module-lines = 800
+
+[tool.ruff.lint]
+extend-ignore = [
+    "E", # Syntax errors
+    "F", # Pyflakes rules (excluding F401)
+    "UP", # pyupgrade rules
+    "D", # Docstring rules
+]
+extend-select = ["F401"]
+unfixable = []
+
+[[tool.mypy.overrides]]
+module = [
+    "test.*",
+]
+ignore_errors = true
+
+[tool.sonar]
+projectKey = "com.exasol:pytest-benchmark"
+host.url = "https://sonarcloud.io"
+organization = "exasol"
+sonar.tests = "test"
