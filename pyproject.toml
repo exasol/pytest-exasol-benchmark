@@ -16,7 +16,7 @@ dependencies = ["pytest-benchmark (>=5.2.3,<6.0.0)"]
 
 [dependency-groups]
 dev = [
-    "exasol-toolbox>=10.1.0,<11",
+    "exasol-toolbox>=10.2.0,<11",
 ]
 
 [tool.poetry]
