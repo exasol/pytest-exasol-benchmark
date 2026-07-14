@@ -20,5 +20,5 @@ class Config(BaseConfig):
 PROJECT_CONFIG = Config(
     project_name="pytest_benchmark",
     root_path=Path(__file__).parent,
-    python_versions=("3.10", "3.11", "3.12", "3.13", "3.14"),
+    python_versions=("3.10", "3.11", "3.12", "3.13"),
 )
