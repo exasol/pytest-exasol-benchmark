@@ -10,6 +10,15 @@ import pytest
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture
+def query_func() -> Callable:
+    """
+    The fixture shall return a function which can be used to execute SQL queries.
+    The user has to override this fixture.
+    """
+    raise NotImplementedError("Override of fixture 'query_func' not implemented")
+
+
 def get_enable_query_cache_sql() -> str:
     return "alter session set query_cache='on'"
 
