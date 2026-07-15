@@ -28,7 +28,7 @@ def get_disable_query_cache_sql() -> str:
 
 
 @contextmanager
-def _disable_query_cache(query_func: Callable, disable_query_cache: bool):
+def disable_query_cache_session(query_func: Callable, disable_query_cache: bool):
     if disable_query_cache:
         query_func(get_disable_query_cache_sql())
     yield
@@ -46,7 +46,7 @@ def exasol_benchmark(benchmark, query_func: Callable):
         iterations=1,
         disable_query_cache: bool = True,
     ):
-        with _disable_query_cache(query_func, disable_query_cache):
+        with disable_query_cache_session(query_func, disable_query_cache):
             return benchmark.pedantic(
                 target=target,
                 args=args,
