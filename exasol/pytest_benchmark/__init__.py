@@ -4,14 +4,21 @@ from importlib.metadata import version
 __version__ = version("pytest_exasol_benchmark")
 import logging
 from collections.abc import Callable
+from typing import (
+    Any,
+    TypeAlias,
+)
 
 import pytest
 
 logger = logging.getLogger(__name__)
 
+QueryResult: TypeAlias = Any
+QueryFunc: TypeAlias = Callable[[str], QueryResult]
+
 
 @pytest.fixture
-def query_func() -> Callable:
+def query_func() -> QueryFunc:
     """
     The fixture shall return a function which can be used to execute SQL queries.
     The user has to override this fixture.
@@ -28,7 +35,7 @@ def get_disable_query_cache_sql() -> str:
 
 
 @contextmanager
-def disable_query_cache_session(query_func: Callable, disable_query_cache: bool):
+def disable_query_cache_session(query_func: QueryFunc, disable_query_cache: bool):
     if disable_query_cache:
         query_func(get_disable_query_cache_sql())
     yield
@@ -37,7 +44,7 @@ def disable_query_cache_session(query_func: Callable, disable_query_cache: bool)
 
 
 @pytest.fixture
-def exasol_benchmark(benchmark, query_func: Callable):
+def exasol_benchmark(benchmark, query_func: QueryFunc):
     def run_benchmark(
         target: Callable,
         args: tuple = (),
