@@ -16,6 +16,45 @@ logger = logging.getLogger(__name__)
 QueryResult: TypeAlias = Any
 QueryFunc: TypeAlias = Callable[[str], QueryResult]
 
+MAX_UNIONS: int = 100
+
+
+def linear_row_sql_data_generator(
+    schema: str,
+    output_table_name: str,
+    input_table_name: str,
+    factor: int,
+    max_unions: int = MAX_UNIONS,
+) -> list[str]:
+    """
+    Generate SQL statements that copy rows from `schema.input_table_name` to `schema.output_table_name`
+    `factor` times using UNION ALL. For each `max_unions` a new SQL statement is added to the list.
+
+    Returns a list of SQL statements.
+    Example:
+        factor=3,   max_unions=100 -> 1 SQL statement
+        factor=150, max_unions=100 -> 3 SQL statements: 150 + 50
+    """
+    if factor < 1:
+        raise ValueError("factor must be at least 1")
+    if max_unions < 1 or max_unions > MAX_UNIONS:
+        raise ValueError(f"max_unions must be between 1 and {MAX_UNIONS}")
+
+    sql_statements: list[str] = []
+    remaining = factor
+
+    while remaining > 0:
+        batch_size = min(remaining, max_unions)
+        selects = [
+            f"SELECT * FROM {schema}.{input_table_name}" for _ in range(batch_size)
+        ]
+        union_sql = "\nUNION ALL\n".join(selects)
+
+        sql_statements.append(f"INSERT INTO {schema}.{output_table_name}\n{union_sql}")
+        remaining -= batch_size
+
+    return sql_statements
+
 
 @pytest.fixture
 def query_func() -> QueryFunc:
