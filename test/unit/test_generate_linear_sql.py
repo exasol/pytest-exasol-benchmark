@@ -1,6 +1,8 @@
 import pytest
-from sqlglot import expressions as exp
-from sqlglot import parse_one
+from sqlglot import (
+    exp,
+    parse_one,
+)
 
 from exasol.pytest_benchmark import (
     MAX_UNIONS,
