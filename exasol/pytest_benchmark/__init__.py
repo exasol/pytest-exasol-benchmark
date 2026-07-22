@@ -12,6 +12,10 @@ from typing import (
 )
 
 import pytest
+from sqlglot.expressions import (
+    Query,
+    Select,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +53,19 @@ def linear_row_sql_data_generator(
     output_table = exp.Table(this=output_table_name, db=schema_name)
 
     while remaining > 0:
-        batch_size = min(remaining, max_unions)
-        # First SELECT
-        query = exp.select("*").from_(input_table.copy())
+        batch_size: int = min(remaining, max_unions)
 
-        # UNION ALL the remaining SELECT statements
-        for _ in range(batch_size - 1):
-            query = query.union(
-                exp.select("*").from_(input_table.copy()),
-                distinct=False,  # UNION ALL
-            )
+        selects: list[Select] = [
+            exp.select("*").from_(input_table.copy()) for _ in range(batch_size)
+        ]
+
+        query: Query = selects[0]
+        for next_select in selects[1:]:
+            query = query.union(next_select, distinct=False)
 
         insert = exp.Insert(
-            this=output_table.copy(),
             expression=query,
+            into=output_table.copy(),
         )
 
         sql_statements.append(insert.sql(pretty=True))
