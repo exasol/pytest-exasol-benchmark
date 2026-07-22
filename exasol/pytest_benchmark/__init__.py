@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from importlib.metadata import version
 
+from sqlglot import exp
+
 __version__ = version("pytest_exasol_benchmark")
 import logging
 from collections.abc import Callable
@@ -20,7 +22,7 @@ MAX_UNIONS: int = 100
 
 
 def linear_row_sql_data_generator(
-    schema: str,
+    schema_name: str,
     output_table_name: str,
     input_table_name: str,
     factor: int,
@@ -43,14 +45,27 @@ def linear_row_sql_data_generator(
     sql_statements: list[str] = []
     remaining = factor
 
+    input_table = exp.Table(this=input_table_name, db=schema_name)
+    output_table = exp.Table(this=output_table_name, db=schema_name)
+
     while remaining > 0:
         batch_size = min(remaining, max_unions)
-        selects = [
-            f"SELECT * FROM {schema}.{input_table_name}" for _ in range(batch_size)
-        ]
-        union_sql = "\nUNION ALL\n".join(selects)
+        # First SELECT
+        query = exp.select("*").from_(input_table.copy())
 
-        sql_statements.append(f"INSERT INTO {schema}.{output_table_name}\n{union_sql}")
+        # UNION ALL the remaining SELECT statements
+        for _ in range(batch_size - 1):
+            query = query.union(
+                exp.select("*").from_(input_table.copy()),
+                distinct=False,  # UNION ALL
+            )
+
+        insert = exp.Insert(
+            this=output_table.copy(),
+            expression=query,
+        )
+
+        sql_statements.append(insert.sql(pretty=True))
         remaining -= batch_size
 
     return sql_statements

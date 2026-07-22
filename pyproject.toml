@@ -20,7 +20,8 @@ classifiers = [
 
 dependencies = [
     "pytest (>=9.1.1,<10.0.0)",
-    "pytest-benchmark (>=5.2.3,<6.0.0)"
+    "pytest-benchmark (>=5.2.3,<6.0.0)",
+    "sqlglot (>=30.13.0,<31.0.0)"
 ]
 
 [project.entry-points.pytest11]
