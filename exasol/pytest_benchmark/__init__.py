@@ -42,7 +42,7 @@ def linear_row_sql_data_generator(
         factor=150, max_unions=100 -> 3 SQL statements: 150 + 50
     """
     if factor < 1:
-        raise ValueError("factor must be at least 1")
+        raise ValueError("factor must be greater than 0")
     if max_unions < 1 or max_unions > MAX_UNIONS:
         raise ValueError(f"max_unions must be between 1 and {MAX_UNIONS}")
 
