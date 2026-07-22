@@ -41,9 +41,9 @@ def test_generate_linear_sql_batches_by_max_unions(
 def test_linear_row_sql_data_generator_rejects_invalid_factor():
     with pytest.raises(ValueError, match="factor must be greater than 0"):
         linear_row_sql_data_generator(
-            schema_name="public",
-            output_table_name="customers_large",
-            input_table_name="customers",
+            schema_name="test_schema",
+            output_table_name="test_output_table",
+            input_table_name="test_input_table",
             factor=0,
         )
 
@@ -55,9 +55,9 @@ def test_linear_row_sql_data_generator_rejects_invalid_max_unions(max_unions):
         match=rf"max_unions must be between 1 and {MAX_UNIONS}",
     ):
         linear_row_sql_data_generator(
-            schema_name="public",
-            output_table_name="customers_large",
-            input_table_name="customers",
+            schema_name="test_schema",
+            output_table_name="test_output_table",
+            input_table_name="test_input_table",
             factor=1,
             max_unions=max_unions,
         )
