@@ -77,6 +77,35 @@ def linear_row_sql_data_generator(
     return sql_statements
 
 
+def exponential_row_sql_data_generator(
+    schema_name: str,
+    output_table_name: str,
+    input_table_name: str,
+    exponent: int = 1,
+) -> list[str]:
+    """Generate SQL statements that grow ``output_table_name`` exponentially.
+
+    The first SQL statement copies the input table to the output table.
+    Each subsequent SQL statement inserts the output table into itself, doubling its
+    row count. Consequently, executing all returned SQL statements produces
+    ``2 ** exponent`` copies of the input table's rows.
+    """
+    if exponent < 1:
+        raise ValueError("exponent must be greater than or equal to 1")
+
+    input_table = exp.table_(table=input_table_name, db=schema_name)
+    output_table = exp.table_(table=output_table_name, db=schema_name)
+
+    source_tables = [input_table, *[output_table] * exponent]
+    return [
+        exp.Insert(
+            this=output_table.copy(),
+            expression=exp.select("*").from_(source_table.copy()),
+        ).sql(dialect=Dialects.EXASOL, pretty=True)
+        for source_table in source_tables
+    ]
+
+
 @pytest.fixture
 def query_func() -> QueryFunc:
     """
