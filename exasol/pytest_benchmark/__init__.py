@@ -39,7 +39,7 @@ def linear_row_sql_data_generator(
     Returns a list of SQL statements.
     Example:
         factor=3,   max_unions=100 -> 1 SQL statement
-        factor=150, max_unions=100 -> 3 SQL statements: 150 + 50
+        factor=150, max_unions=100 -> 2 SQL statements: 150 + 50
     """
     if factor < 1:
         raise ValueError("factor must be greater than 0")
