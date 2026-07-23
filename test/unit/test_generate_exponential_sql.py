@@ -29,7 +29,7 @@ def test_exponential_row_sql_data_generator(exponent):
         source_table = tree.expression.args["from_"].this.name
         source_tables.append(source_table)
 
-    assert source_tables == ["test_input_table", *["test_output_table"] * exponent]
+    assert source_tables == ["test_input_table", *(["test_output_table"] * exponent)]
 
 
 def test_exponential_row_sql_data_generator_rejects_invalid_exponent():

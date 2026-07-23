@@ -96,7 +96,7 @@ def exponential_row_sql_data_generator(
     input_table = exp.table_(table=input_table_name, db=schema_name)
     output_table = exp.table_(table=output_table_name, db=schema_name)
 
-    source_tables = [input_table, *[output_table] * exponent]
+    source_tables = [input_table, *([output_table] * exponent)]
     return [
         exp.Insert(
             this=output_table.copy(),
