@@ -1,6 +1,11 @@
 from contextlib import contextmanager
 from importlib.metadata import version
 
+from sqlglot import (
+    Dialects,
+    exp,
+)
+
 __version__ = version("pytest_exasol_benchmark")
 import logging
 from collections.abc import Callable
@@ -10,11 +15,66 @@ from typing import (
 )
 
 import pytest
+from sqlglot.expressions import (
+    Query,
+    Select,
+)
 
 logger = logging.getLogger(__name__)
 
 QueryResult: TypeAlias = Any
 QueryFunc: TypeAlias = Callable[[str], QueryResult]
+
+MAX_UNIONS: int = 100
+
+
+def linear_row_sql_data_generator(
+    schema_name: str,
+    output_table_name: str,
+    input_table_name: str,
+    factor: int,
+    max_unions: int = MAX_UNIONS,
+) -> list[str]:
+    """
+    Generate SQL statements that copy rows from `schema.input_table_name` to `schema.output_table_name`
+    `factor` times using UNION ALL. For each `max_unions` a new SQL statement is added to the list.
+
+    Returns a list of SQL statements.
+    Example:
+        factor=3,   max_unions=100 -> 1 SQL statement
+        factor=150, max_unions=100 -> 2 SQL statements: 150 + 50
+    """
+    if factor < 1:
+        raise ValueError("factor must be greater than 0")
+    if max_unions < 1 or max_unions > MAX_UNIONS:
+        raise ValueError(f"max_unions must be between 1 and {MAX_UNIONS}")
+
+    sql_statements: list[str] = []
+    remaining = factor
+
+    input_table = exp.table_(table=input_table_name, db=schema_name)
+    output_table = exp.table_(table=output_table_name, db=schema_name)
+
+    while remaining > 0:
+        batch_size: int = min(remaining, max_unions)
+
+        selects: list[Select] = [
+            exp.select("*").from_(input_table.copy()) for _ in range(batch_size)
+        ]
+
+        query: Query = selects[0]
+        for next_select in selects[1:]:
+            query = query.union(next_select, distinct=False)
+
+        insert = exp.Insert(
+            expression=query,
+            into=output_table.copy(),
+        )
+
+        sql_statements.append(insert.sql(dialect=Dialects.EXASOL, pretty=True))
+        remaining -= batch_size
+
+    return sql_statements
 
 
 @pytest.fixture
