@@ -1,5 +1,6 @@
 import pytest
 from sqlglot import (
+    Dialects,
     exp,
     parse_one,
 )
@@ -33,7 +34,7 @@ def test_generate_linear_sql_batches_by_max_unions(
     for stmt, expected_selects, expected_unions in zip(
         actual_sql_statements, expected_select_counts, expected_union_counts
     ):
-        tree = parse_one(stmt)
+        tree = parse_one(stmt, dialect=Dialects.EXASOL)
 
         assert isinstance(tree, exp.Insert)
         assert len(list(tree.find_all(exp.Select))) == expected_selects

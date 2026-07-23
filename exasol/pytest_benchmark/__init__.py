@@ -1,7 +1,10 @@
 from contextlib import contextmanager
 from importlib.metadata import version
 
-from sqlglot import exp
+from sqlglot import (
+    Dialects,
+    exp,
+)
 
 __version__ = version("pytest_exasol_benchmark")
 import logging
@@ -49,8 +52,8 @@ def linear_row_sql_data_generator(
     sql_statements: list[str] = []
     remaining = factor
 
-    input_table = exp.Table(this=input_table_name, db=schema_name)
-    output_table = exp.Table(this=output_table_name, db=schema_name)
+    input_table = exp.table_(table=input_table_name, db=schema_name)
+    output_table = exp.table_(table=output_table_name, db=schema_name)
 
     while remaining > 0:
         batch_size: int = min(remaining, max_unions)
@@ -68,7 +71,7 @@ def linear_row_sql_data_generator(
             into=output_table.copy(),
         )
 
-        sql_statements.append(insert.sql(pretty=True))
+        sql_statements.append(insert.sql(dialect=Dialects.EXASOL, pretty=True))
         remaining -= batch_size
 
     return sql_statements
