@@ -1,4 +1,4 @@
-Documentation of  pytest-exasol-benchmark
+Documentation of pytest-exasol-benchmark
 -----------------------------------------
 
 .. grid:: 1 1 3 2
