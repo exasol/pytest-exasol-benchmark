@@ -63,6 +63,31 @@ The package provides SQL generators for benchmark data:
 
 Copies input rows ``factor`` times; ``max_unions`` limits copies per statement.
 
+.. list-table::
+   :header-rows: 1
+
+   * - ``factor``
+     - Copies of the input rows
+   * - 1
+     - 1
+   * - 2
+     - 2
+   * - 3
+     - 3
+
+Example: generate SQL that inserts three copies of ``source`` into ``target``:
+
+.. code-block:: python
+
+   statements = linear_row_sql_data_generator(
+       schema_name="BENCHMARK",
+       output_table_name="target",
+       input_table_name="source",
+       factor=3,
+   )
+   for statement in statements:
+       query_func(statement)
+
 ``Exponential growth``
 ~~~~~~~~~~~~~~~~~~~~~~
 .. code-block:: python
@@ -75,3 +100,28 @@ Copies input rows ``factor`` times; ``max_unions`` limits copies per statement.
    ) -> list[str]
 
 Copies the input once, then doubles the output ``exponent`` times, producing ``2 ** exponent`` copies of the input rows.
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``exponent``
+     - Copies of the input rows
+   * - 1
+     - 2
+   * - 2
+     - 4
+   * - 3
+     - 8
+
+Example: generate SQL that grows ``target`` to eight copies of ``source``:
+
+.. code-block:: python
+
+   statements = exponential_row_sql_data_generator(
+       schema_name="BENCHMARK",
+       output_table_name="target",
+       input_table_name="source",
+       exponent=3,
+   )
+   for statement in statements:
+       query_func(statement)
