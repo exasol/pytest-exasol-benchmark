@@ -7,8 +7,6 @@
 Fixtures
 --------
 
-
-
 - ``query_func``: **you must override this fixture** with your SQL execution hook.
 - ``exasol_benchmark``: a wrapper around ``pytest-benchmark`` that runs the benchmarked callable with Exasol query cache handling.
 
@@ -31,6 +29,13 @@ Implement it to return a callable that accepts a SQL string and executes it agai
 ``exasol_benchmark``
 ~~~~~~~~~~~~~~~~~~~~
 
+By default, it disables the query cache for the current session before the benchmark and re-enables it afterwards:
+Set ``disable_query_cache=False`` to leave the session setting unchanged.
+
+.. note::
+   The benchmark function needs to use the same session as ``query_func``,
+   to respect the session settings managed by the ``exasol_benchmark`` fixture.
+
 E.g., use it to benchmark SQL queries that interact with an Exasol database:
 
 .. code-block:: python
@@ -40,9 +45,6 @@ E.g., use it to benchmark SQL queries that interact with an Exasol database:
            pyexasol_connection.execute,
            ("SELECT * FROM customers;",),
        )
-
-By default, it disables the query cache before the benchmark and re-enables it afterwards:
-Set ``disable_query_cache=False`` to leave the session setting unchanged.
 
 Data generators
 ---------------
