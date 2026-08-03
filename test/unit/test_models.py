@@ -9,8 +9,8 @@ from exasol.pytest_benchmark.models import (
     NormalizedCase,
     PlatformMetadata,
     RunnerExecution,
-    TestSetCollection as Collection,
 )
+from exasol.pytest_benchmark.models import TestSetCollection as Collection
 
 
 def execution(execution_id="run-1", target="onprem-standard"):
@@ -85,7 +85,9 @@ def test_collection_rejects_duplicate_runner_identity():
 
 
 def test_normalized_case_requires_a_unique_fullname():
-    assert NormalizedCase(fullname="test::case", data={"mean": 1}).fullname == "test::case"
+    assert (
+        NormalizedCase(fullname="test::case", data={"mean": 1}).fullname == "test::case"
+    )
     with pytest.raises(ValidationError):
         NormalizedCase(fullname="", data={})
     collection = Collection(test_set_id="set", comparison_target="target")
@@ -97,5 +99,13 @@ def test_normalized_case_requires_a_unique_fullname():
 def test_history_uses_artifact_directories(tmp_path):
     execution("run-1", "target-a").write_to(tmp_path / "target-a" / "set" / "run-1")
     execution("run-2", "target-b").write_to(tmp_path / "target-b" / "set" / "run-2")
-    assert {item.comparison_target for item in load_history(tmp_path)} == {"target-a", "target-b"}
-    assert json.loads((tmp_path / "target-a" / "set" / "run-1" / "benchmark.json").read_text()) == execution("run-1", "target-a").benchmark
+    assert {item.comparison_target for item in load_history(tmp_path)} == {
+        "target-a",
+        "target-b",
+    }
+    assert (
+        json.loads(
+            (tmp_path / "target-a" / "set" / "run-1" / "benchmark.json").read_text()
+        )
+        == execution("run-1", "target-a").benchmark
+    )

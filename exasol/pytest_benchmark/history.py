@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
-from .models import RunnerExecution, TestSetCollection
+from .models import (
+    RunnerExecution,
+    TestSetCollection,
+)
 
 
 def load_history(root: Path = Path("benchmark-history")) -> list[TestSetCollection]:

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, TypeVar
+from typing import (
+    Annotated,
+    TypeVar,
+)
 
 from pydantic import (
     BaseModel,
@@ -17,7 +20,9 @@ from pydantic import (
 
 SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
-Identifier = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")]
+Identifier = Annotated[
+    str, Field(min_length=1, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+]
 ModelT = TypeVar("ModelT", bound="Model")
 
 
@@ -121,17 +126,24 @@ class RunnerExecution(Model):
     def write_to(self, directory: Path) -> None:
         """Write this execution to a per-run artifact directory."""
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "manifest.json").write_text(self.manifest.to_json() + "\n", encoding="utf-8")
+        (directory / "manifest.json").write_text(
+            self.manifest.to_json() + "\n", encoding="utf-8"
+        )
         (directory / self.manifest.benchmark_file).write_text(
-            json.dumps(self.benchmark, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+            json.dumps(self.benchmark, indent=2, ensure_ascii=False, allow_nan=False)
+            + "\n",
             encoding="utf-8",
         )
 
     @classmethod
     def read_from(cls, directory: Path) -> RunnerExecution:
         """Read an execution from ``manifest.json`` and its benchmark file."""
-        manifest = ArtifactManifest.from_json((directory / "manifest.json").read_text(encoding="utf-8"))
-        benchmark = json.loads((directory / manifest.benchmark_file).read_text(encoding="utf-8"))
+        manifest = ArtifactManifest.from_json(
+            (directory / "manifest.json").read_text(encoding="utf-8")
+        )
+        benchmark = json.loads(
+            (directory / manifest.benchmark_file).read_text(encoding="utf-8")
+        )
         if not isinstance(benchmark, dict):
             raise ValueError("benchmark JSON must contain an object")
         return cls(manifest=manifest, benchmark=benchmark)
@@ -151,11 +163,21 @@ class TestSetCollection(Model):
 
     @model_validator(mode="after")
     def unique_executions(self) -> TestSetCollection:
-        identities = [(x.manifest.test_set_id, x.manifest.comparison_target, x.manifest.runner_execution_id) for x in self.executions]
+        identities = [
+            (
+                x.manifest.test_set_id,
+                x.manifest.comparison_target,
+                x.manifest.runner_execution_id,
+            )
+            for x in self.executions
+        ]
         if len(identities) != len(set(identities)):
             raise ValueError("duplicate runner-execution identity")
         for execution in self.executions:
-            if (execution.manifest.test_set_id, execution.manifest.comparison_target) != (self.test_set_id, self.comparison_target):
+            if (
+                execution.manifest.test_set_id,
+                execution.manifest.comparison_target,
+            ) != (self.test_set_id, self.comparison_target):
                 raise ValueError("execution does not belong to this collection")
         for fullname, case in self.cases.items():
             if fullname != case.fullname:
@@ -206,7 +228,14 @@ class ComparisonReport(Model):
 
 
 __all__ = [
-    "ArtifactManifest", "ComparisonReport", "ComparisonResult", "JsonValue",
-    "NormalizedCase", "PlatformMetadata", "RunnerExecution", "SCHEMA_VERSION",
-    "SUPPORTED_SCHEMA_VERSIONS", "TestSetCollection",
+    "ArtifactManifest",
+    "ComparisonReport",
+    "ComparisonResult",
+    "JsonValue",
+    "NormalizedCase",
+    "PlatformMetadata",
+    "RunnerExecution",
+    "SCHEMA_VERSION",
+    "SUPPORTED_SCHEMA_VERSIONS",
+    "TestSetCollection",
 ]
