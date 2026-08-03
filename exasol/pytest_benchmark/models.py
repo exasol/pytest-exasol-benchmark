@@ -86,6 +86,8 @@ class ArtifactManifest(Model):
     def safe_benchmark_file(cls, value: str) -> str:
         if not value or Path(value).name != value or value in {".", ".."}:
             raise ValueError("benchmark_file must be a file name without directories")
+        if value.casefold() == "manifest.json":
+            raise ValueError("benchmark_file must not be named manifest.json")
         return value
 
 

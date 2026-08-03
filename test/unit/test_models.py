@@ -53,6 +53,27 @@ def test_manifest_rejects_unsupported_schema_and_non_json_attributes():
         )
 
 
+@pytest.mark.parametrize("benchmark_file", ["manifest.json", "MANIFEST.JSON"])
+def test_manifest_rejects_benchmark_file_collision(benchmark_file):
+    with pytest.raises(ValidationError, match="must not be named manifest.json"):
+        ArtifactManifest(
+            test_set_id="set",
+            comparison_target="target",
+            runner_execution_id="run",
+            source_revision="revision",
+            platform={"os": "linux", "architecture": "x86_64"},
+            benchmark_file=benchmark_file,
+        )
+
+
+def test_existing_package_public_names_are_not_restricted():
+    import exasol.pytest_benchmark as benchmark
+
+    assert not hasattr(benchmark, "__all__")
+    assert hasattr(benchmark, "linear_row_sql_data_generator")
+    assert hasattr(benchmark, "exasol_benchmark")
+
+
 def test_collection_rejects_duplicate_runner_identity():
     collection = Collection(
         test_set_id="tpch-sf10",

@@ -7,21 +7,16 @@ from sqlglot import (
 )
 
 from .models import (
-    ArtifactManifest,
-    ComparisonReport,
-    ComparisonResult,
-    NormalizedCase,
-    PlatformMetadata,
-    RunnerExecution,
-    TestSetCollection,
+    ArtifactManifest as ArtifactManifest,
+    ComparisonReport as ComparisonReport,
+    ComparisonResult as ComparisonResult,
+    NormalizedCase as NormalizedCase,
+    PlatformMetadata as PlatformMetadata,
+    RunnerExecution as RunnerExecution,
+    TestSetCollection as TestSetCollection,
 )
 
 __version__ = version("pytest_exasol_benchmark")
-
-__all__ = [
-    "ArtifactManifest", "ComparisonReport", "ComparisonResult", "NormalizedCase",
-    "PlatformMetadata", "RunnerExecution", "TestSetCollection",
-]
 import logging
 from collections.abc import Callable
 from typing import (
