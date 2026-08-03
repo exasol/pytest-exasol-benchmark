@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from .models import (
+    MANIFEST_FILENAME,
     RunnerExecution,
     TestSetCollection,
 )
@@ -19,7 +20,7 @@ def load_history(root: Path = Path("benchmark-history")) -> list[TestSetCollecti
     collections: dict[tuple[str, str], TestSetCollection] = {}
     if not root.exists():
         return []
-    for manifest_path in sorted(root.glob("**/manifest.json")):
+    for manifest_path in sorted(root.glob(f"**/{MANIFEST_FILENAME}")):
         execution = RunnerExecution.read_from(manifest_path.parent)
         key = (execution.manifest.test_set_id, execution.manifest.comparison_target)
         collection = collections.setdefault(

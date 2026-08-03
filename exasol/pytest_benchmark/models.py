@@ -20,6 +20,7 @@ from pydantic import (
 
 SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
+MANIFEST_FILENAME = "manifest.json"
 Identifier = Annotated[
     str, Field(min_length=1, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ]
@@ -62,7 +63,7 @@ class PlatformMetadata(Model):
 
 
 class ArtifactManifest(Model):
-    """Metadata for one runner execution stored in ``manifest.json``.
+    """Metadata for one runner execution stored in ``MANIFEST_FILENAME``.
 
     The test set, comparison target, and runner execution ID form the stable
     execution identity.  ``attributes`` stores project-specific context such
@@ -92,8 +93,8 @@ class ArtifactManifest(Model):
     def safe_benchmark_file(cls, value: str) -> str:
         if not value or Path(value).name != value or value in {".", ".."}:
             raise ValueError("benchmark_file must be a file name without directories")
-        if value.casefold() == "manifest.json":
-            raise ValueError("benchmark_file must not be named manifest.json")
+        if value.casefold() == MANIFEST_FILENAME:
+            raise ValueError(f"benchmark_file must not be named {MANIFEST_FILENAME}")
         return value
 
 
@@ -126,7 +127,7 @@ class RunnerExecution(Model):
     def write_to(self, directory: Path) -> None:
         """Write this execution to a per-run artifact directory."""
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "manifest.json").write_text(
+        (directory / MANIFEST_FILENAME).write_text(
             self.manifest.to_json() + "\n", encoding="utf-8"
         )
         (directory / self.manifest.benchmark_file).write_text(
@@ -137,9 +138,9 @@ class RunnerExecution(Model):
 
     @classmethod
     def read_from(cls, directory: Path) -> RunnerExecution:
-        """Read an execution from ``manifest.json`` and its benchmark file."""
+        """Read an execution from ``MANIFEST_FILENAME`` and its benchmark file."""
         manifest = ArtifactManifest.from_json(
-            (directory / "manifest.json").read_text(encoding="utf-8")
+            (directory / MANIFEST_FILENAME).read_text(encoding="utf-8")
         )
         benchmark = json.loads(
             (directory / manifest.benchmark_file).read_text(encoding="utf-8")

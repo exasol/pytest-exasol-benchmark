@@ -80,8 +80,9 @@ def test_collection_rejects_duplicate_runner_identity():
         comparison_target="onprem-standard",
         executions=[execution()],
     )
+    duplicate = execution()
     with pytest.raises(ValidationError):
-        collection.add(execution())
+        collection.add(duplicate)
 
 
 def test_normalized_case_requires_a_unique_fullname():
@@ -91,9 +92,11 @@ def test_normalized_case_requires_a_unique_fullname():
     with pytest.raises(ValidationError):
         NormalizedCase(fullname="", data={})
     collection = Collection(test_set_id="set", comparison_target="target")
-    collection.add_case(NormalizedCase(fullname="test::case", data={"mean": 1}))
+    first_case = NormalizedCase(fullname="test::case", data={"mean": 1})
+    collection.add_case(first_case)
+    duplicate_case = NormalizedCase(fullname="test::case", data={"mean": 2})
     with pytest.raises(ValueError, match="duplicate"):
-        collection.add_case(NormalizedCase(fullname="test::case", data={"mean": 2}))
+        collection.add_case(duplicate_case)
 
 
 def test_history_uses_artifact_directories(tmp_path):
