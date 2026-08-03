@@ -135,11 +135,12 @@ def test_normalized_case_requires_a_unique_fullname():
 
 
 def test_collection_rejects_a_case_key_that_does_not_match_fullname():
+    invalid_case = NormalizedCase(fullname="actual-name")
     with pytest.raises(ValidationError, match="case key"):
         Collection(
             test_set_id="set",
             comparison_target="target",
-            cases={"wrong-key": NormalizedCase(fullname="actual-name")},
+            cases={"wrong-key": invalid_case},
         )
 
 
