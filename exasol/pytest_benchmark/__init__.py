@@ -6,7 +6,22 @@ from sqlglot import (
     exp,
 )
 
+from .models import (
+    ArtifactManifest,
+    ComparisonReport,
+    ComparisonResult,
+    NormalizedCase,
+    PlatformMetadata,
+    RunnerExecution,
+    TestSetCollection,
+)
+
 __version__ = version("pytest_exasol_benchmark")
+
+__all__ = [
+    "ArtifactManifest", "ComparisonReport", "ComparisonResult", "NormalizedCase",
+    "PlatformMetadata", "RunnerExecution", "TestSetCollection",
+]
 import logging
 from collections.abc import Callable
 from typing import (
