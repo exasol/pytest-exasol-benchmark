@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from exasol.pytest_benchmark.history import load_history
 from exasol.pytest_benchmark.models import (
     ArtifactManifest,
+    ComparisonReport,
     ComparisonResult,
     NormalizedCase,
     PlatformMetadata,
@@ -34,7 +35,7 @@ def test_runner_execution_json_round_trip():
     assert RunnerExecution.from_json(value.to_json()) == value
 
 
-def test_manifest_rejects_unsupported_schema_and_non_json_attributes():
+def test_manifest_rejects_unsupported_schema():
     with pytest.raises(ValidationError):
         ArtifactManifest(
             schema_version=2,
@@ -44,6 +45,9 @@ def test_manifest_rejects_unsupported_schema_and_non_json_attributes():
             source_revision="revision",
             platform={"os": "linux", "architecture": "x86_64"},
         )
+
+
+def test_manifest_rejects_non_json_attributes():
     with pytest.raises(ValidationError):
         ArtifactManifest(
             test_set_id="set",
@@ -80,21 +84,20 @@ def test_manifest_rejects_non_finite_attribute_values():
         )
 
 
-def test_manifest_rejects_benchmark_file_with_directory():
-    for benchmark_file in (
-        "nested/benchmark.json",
-        r"nested\benchmark.json",
-        "C:benchmark.json",
-    ):
-        with pytest.raises(ValidationError, match="without directories"):
-            ArtifactManifest(
-                test_set_id="set",
-                comparison_target="target",
-                runner_execution_id="run",
-                source_revision="revision",
-                platform={"os": "linux", "architecture": "x86_64"},
-                benchmark_file=benchmark_file,
-            )
+@pytest.mark.parametrize(
+    "benchmark_file",
+    ["nested/benchmark.json", r"nested\benchmark.json", "C:benchmark.json"],
+)
+def test_manifest_rejects_benchmark_file_with_directory(benchmark_file):
+    with pytest.raises(ValidationError, match="without directories"):
+        ArtifactManifest(
+            test_set_id="set",
+            comparison_target="target",
+            runner_execution_id="run",
+            source_revision="revision",
+            platform={"os": "linux", "architecture": "x86_64"},
+            benchmark_file=benchmark_file,
+        )
 
 
 @pytest.mark.parametrize("field", ["baseline", "candidate"])
@@ -103,12 +106,17 @@ def test_comparison_result_rejects_non_finite_values(field):
         ComparisonResult(fullname="test::case", **{field: {"mean": math.nan}})
 
 
-def test_existing_package_public_names_are_not_restricted():
+def test_package_does_not_restrict_wildcard_exports():
     import exasol.pytest_benchmark as benchmark
 
     assert not hasattr(benchmark, "__all__")
-    assert hasattr(benchmark, "linear_row_sql_data_generator")
-    assert hasattr(benchmark, "exasol_benchmark")
+
+
+@pytest.mark.parametrize("name", ["linear_row_sql_data_generator", "exasol_benchmark"])
+def test_package_exports_existing_public_names(name):
+    import exasol.pytest_benchmark as benchmark
+
+    assert hasattr(benchmark, name)
 
 
 def test_collection_rejects_duplicate_runner_identity():
@@ -132,12 +140,18 @@ def test_collection_rejects_execution_from_another_collection():
         )
 
 
-def test_normalized_case_requires_a_unique_fullname():
+def test_normalized_case_accepts_a_fullname():
     assert (
         NormalizedCase(fullname="test::case", data={"mean": 1}).fullname == "test::case"
     )
+
+
+def test_normalized_case_rejects_an_empty_fullname():
     with pytest.raises(ValidationError):
         NormalizedCase(fullname="", data={})
+
+
+def test_collection_rejects_duplicate_normalized_case():
     collection = Collection(test_set_id="set", comparison_target="target")
     first_case = NormalizedCase(fullname="test::case", data={"mean": 1})
     collection.add_case(first_case)
@@ -157,16 +171,6 @@ def test_collection_rejects_a_case_key_that_does_not_match_fullname():
 
 
 def test_comparison_report_rejects_unsupported_schema_version():
-    from exasol.pytest_benchmark.models import ComparisonReport
-
-    report = ComparisonReport(
-        schema_version=1,
-        test_set_id="set",
-        comparison_target="target",
-        baseline_execution_id="baseline",
-        candidate_execution_id="candidate",
-    )
-    assert report.schema_version == 1
     with pytest.raises(ValidationError, match="unsupported schema version"):
         ComparisonReport(
             schema_version=2,
@@ -177,6 +181,17 @@ def test_comparison_report_rejects_unsupported_schema_version():
         )
 
 
+def test_comparison_report_accepts_supported_schema_version():
+    report = ComparisonReport(
+        schema_version=1,
+        test_set_id="set",
+        comparison_target="target",
+        baseline_execution_id="baseline",
+        candidate_execution_id="candidate",
+    )
+    assert report.schema_version == 1
+
+
 def test_runner_execution_rejects_non_object_benchmark_json(tmp_path):
     value = execution()
     (tmp_path / "manifest.json").write_text(value.manifest.to_json(), encoding="utf-8")
@@ -185,13 +200,21 @@ def test_runner_execution_rejects_non_object_benchmark_json(tmp_path):
         RunnerExecution.read_from(tmp_path)
 
 
-def test_history_uses_artifact_directories(tmp_path):
+def _write_history_artifacts(tmp_path):
     execution("run-1", "target-a").write_to(tmp_path / "target-a" / "set" / "run-1")
     execution("run-2", "target-b").write_to(tmp_path / "target-b" / "set" / "run-2")
+
+
+def test_history_loads_multiple_targets(tmp_path):
+    _write_history_artifacts(tmp_path)
     assert {item.comparison_target for item in load_history(tmp_path)} == {
         "target-a",
         "target-b",
     }
+
+
+def test_history_preserves_raw_benchmark_data(tmp_path):
+    _write_history_artifacts(tmp_path)
     assert (
         json.loads(
             (tmp_path / "target-a" / "set" / "run-1" / "benchmark.json").read_text()
