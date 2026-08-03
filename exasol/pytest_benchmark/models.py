@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -18,6 +18,7 @@ from pydantic import (
 SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
 Identifier = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")]
+ModelT = TypeVar("ModelT", bound="Model")
 
 
 class Model(BaseModel):
@@ -34,7 +35,7 @@ class Model(BaseModel):
         return self.model_dump_json()
 
     @classmethod
-    def from_json(cls, value: str) -> Model:
+    def from_json(cls: type[ModelT], value: str) -> ModelT:
         """Create a model from its JSON representation."""
         return cls.model_validate_json(value)
 
