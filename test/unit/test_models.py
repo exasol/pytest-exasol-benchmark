@@ -16,9 +16,32 @@ from exasol.pytest_benchmark.models import (
 from exasol.pytest_benchmark.models import TestSetCollection as Collection
 
 
+def make_manifest(**overrides):
+    values = {
+        "test_set_id": "set",
+        "comparison_target": "target",
+        "runner_execution_id": "run",
+        "source_revision": "revision",
+        "platform": {"os": "linux", "architecture": "x86_64"},
+    }
+    values.update(overrides)
+    return ArtifactManifest(**values)
+
+
+def make_comparison_report(**overrides):
+    values = {
+        "test_set_id": "set",
+        "comparison_target": "target",
+        "baseline_execution_id": "baseline",
+        "candidate_execution_id": "candidate",
+    }
+    values.update(overrides)
+    return ComparisonReport(**values)
+
+
 def execution(execution_id="run-1", target="onprem-standard"):
     return RunnerExecution(
-        manifest=ArtifactManifest(
+        manifest=make_manifest(
             test_set_id="tpch-sf10",
             comparison_target=target,
             runner_execution_id=execution_id,
@@ -37,51 +60,23 @@ def test_runner_execution_json_round_trip():
 
 def test_manifest_rejects_unsupported_schema():
     with pytest.raises(ValidationError):
-        ArtifactManifest(
-            schema_version=2,
-            test_set_id="set",
-            comparison_target="target",
-            runner_execution_id="run",
-            source_revision="revision",
-            platform={"os": "linux", "architecture": "x86_64"},
-        )
+        make_manifest(schema_version=2)
 
 
 def test_manifest_rejects_non_json_attributes():
     with pytest.raises(ValidationError):
-        ArtifactManifest(
-            test_set_id="set",
-            comparison_target="target",
-            runner_execution_id="run",
-            source_revision="revision",
-            platform={"os": "linux", "architecture": "x86_64"},
-            attributes={"invalid": object()},
-        )
+        make_manifest(attributes={"invalid": object()})
 
 
 @pytest.mark.parametrize("benchmark_file", ["manifest.json", "MANIFEST.JSON"])
 def test_manifest_rejects_benchmark_file_collision(benchmark_file):
     with pytest.raises(ValidationError, match="must not be named manifest.json"):
-        ArtifactManifest(
-            test_set_id="set",
-            comparison_target="target",
-            runner_execution_id="run",
-            source_revision="revision",
-            platform={"os": "linux", "architecture": "x86_64"},
-            benchmark_file=benchmark_file,
-        )
+        make_manifest(benchmark_file=benchmark_file)
 
 
 def test_manifest_rejects_non_finite_attribute_values():
     with pytest.raises(ValidationError, match="JSON-safe"):
-        ArtifactManifest(
-            test_set_id="set",
-            comparison_target="target",
-            runner_execution_id="run",
-            source_revision="revision",
-            platform={"os": "linux", "architecture": "x86_64"},
-            attributes={"invalid": math.nan},
-        )
+        make_manifest(attributes={"invalid": math.nan})
 
 
 @pytest.mark.parametrize(
@@ -90,14 +85,7 @@ def test_manifest_rejects_non_finite_attribute_values():
 )
 def test_manifest_rejects_benchmark_file_with_directory(benchmark_file):
     with pytest.raises(ValidationError, match="without directories"):
-        ArtifactManifest(
-            test_set_id="set",
-            comparison_target="target",
-            runner_execution_id="run",
-            source_revision="revision",
-            platform={"os": "linux", "architecture": "x86_64"},
-            benchmark_file=benchmark_file,
-        )
+        make_manifest(benchmark_file=benchmark_file)
 
 
 @pytest.mark.parametrize("field", ["baseline", "candidate"])
@@ -172,23 +160,11 @@ def test_collection_rejects_a_case_key_that_does_not_match_fullname():
 
 def test_comparison_report_rejects_unsupported_schema_version():
     with pytest.raises(ValidationError, match="unsupported schema version"):
-        ComparisonReport(
-            schema_version=2,
-            test_set_id="set",
-            comparison_target="target",
-            baseline_execution_id="baseline",
-            candidate_execution_id="candidate",
-        )
+        make_comparison_report(schema_version=2)
 
 
 def test_comparison_report_accepts_supported_schema_version():
-    report = ComparisonReport(
-        schema_version=1,
-        test_set_id="set",
-        comparison_target="target",
-        baseline_execution_id="baseline",
-        candidate_execution_id="candidate",
-    )
+    report = make_comparison_report(schema_version=1)
     assert report.schema_version == 1
 
 
