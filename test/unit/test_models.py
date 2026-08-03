@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from exasol.pytest_benchmark.history import load_history
 from exasol.pytest_benchmark.models import (
     ArtifactManifest,
+    ComparisonResult,
     NormalizedCase,
     PlatformMetadata,
     RunnerExecution,
@@ -80,15 +81,26 @@ def test_manifest_rejects_non_finite_attribute_values():
 
 
 def test_manifest_rejects_benchmark_file_with_directory():
-    with pytest.raises(ValidationError, match="without directories"):
-        ArtifactManifest(
-            test_set_id="set",
-            comparison_target="target",
-            runner_execution_id="run",
-            source_revision="revision",
-            platform={"os": "linux", "architecture": "x86_64"},
-            benchmark_file="nested/benchmark.json",
-        )
+    for benchmark_file in (
+        "nested/benchmark.json",
+        r"nested\benchmark.json",
+        "C:benchmark.json",
+    ):
+        with pytest.raises(ValidationError, match="without directories"):
+            ArtifactManifest(
+                test_set_id="set",
+                comparison_target="target",
+                runner_execution_id="run",
+                source_revision="revision",
+                platform={"os": "linux", "architecture": "x86_64"},
+                benchmark_file=benchmark_file,
+            )
+
+
+@pytest.mark.parametrize("field", ["baseline", "candidate"])
+def test_comparison_result_rejects_non_finite_values(field):
+    with pytest.raises(ValidationError, match="JSON-safe"):
+        ComparisonResult(fullname="test::case", **{field: {"mean": math.nan}})
 
 
 def test_existing_package_public_names_are_not_restricted():

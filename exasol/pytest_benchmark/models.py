@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import (
+    Path,
+    PurePosixPath,
+    PureWindowsPath,
+)
 from typing import (
     Annotated,
     TypeVar,
@@ -46,7 +50,7 @@ class Model(BaseModel):
         return cls.model_validate_json(value)
 
 
-def _json_safe(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+def _json_safe(value: JsonValue) -> JsonValue:
     try:
         json.dumps(value, allow_nan=False)
     except (TypeError, ValueError) as error:
@@ -91,7 +95,12 @@ class ArtifactManifest(Model):
     @field_validator("benchmark_file")
     @classmethod
     def safe_benchmark_file(cls, value: str) -> str:
-        if not value or Path(value).name != value or value in {".", ".."}:
+        if (
+            not value
+            or value in {".", ".."}
+            or PurePosixPath(value).name != value
+            or PureWindowsPath(value).name != value
+        ):
             raise ValueError("benchmark_file must be a file name without directories")
         if value.casefold() == MANIFEST_FILENAME:
             raise ValueError(f"benchmark_file must not be named {MANIFEST_FILENAME}")
@@ -208,6 +217,7 @@ class ComparisonResult(Model):
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
     _validate_attributes = field_validator("attributes")(_json_safe)
+    _validate_comparison_values = field_validator("baseline", "candidate")(_json_safe)
 
 
 class ComparisonReport(Model):
