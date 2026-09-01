@@ -20,11 +20,15 @@ The checked-out tree is the complete baseline for the current revision: every
 ``manifest.json``/``benchmark.json`` pair present in the working copy belongs
 to that revision's baseline, and nothing else does.  A benchmark run adds one
 directory per runner execution -- holding the manifest and the
-``benchmark.json`` of that single test run -- and commits it.  The baseline of
-an earlier revision is therefore recovered by checking that revision out.  Git
-provides the history; loaders do not require revision directories or aggregate
-run files.  Runner identities are the tuple of test-set ID, comparison target,
-and runner-execution ID, and duplicates are rejected while loading.
+``benchmark.json`` of that single test run -- and commits it.
+
+If the performance behavior has changed and the new behavior is the accepted
+one, a new baseline is created by running the benchmark and committing the new
+result as the new baseline.  The previous numbers are not lost: the baseline of
+an earlier revision is recovered by checking that revision out.  Git provides
+the history; loaders do not require revision directories or aggregate run
+files.  Runner identities are the tuple of test-set ID, comparison target, and
+runner-execution ID, and duplicates are rejected while loading.
 
 Schema versions are fields in JSON documents.  Backwards-compatible public
 model additions may use the same major schema version.  Incompatible changes
