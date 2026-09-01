@@ -34,5 +34,4 @@ Documentation of pytest-exasol-benchmark
    developer_guide
    api
    faq
-   benchmark-history
    changes/changelog

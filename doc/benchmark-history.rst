@@ -16,10 +16,15 @@ The public models in ``exasol.pytest_benchmark.models`` use schema version
 output.  ``attributes`` is an extensible JSON object for database versions,
 implementation identifiers, deployment details, and similar context.
 
-The checked-out tree is the complete baseline for the current commit.  Git
+The checked-out tree is the complete baseline for the current revision: every
+``manifest.json``/``benchmark.json`` pair present in the working copy belongs
+to that revision's baseline, and nothing else does.  A benchmark run adds one
+directory per runner execution -- holding the manifest and the
+``benchmark.json`` of that single test run -- and commits it.  The baseline of
+an earlier revision is therefore recovered by checking that revision out.  Git
 provides the history; loaders do not require revision directories or aggregate
 run files.  Runner identities are the tuple of test-set ID, comparison target,
-and runner-execution ID, and duplicates are rejected.
+and runner-execution ID, and duplicates are rejected while loading.
 
 Schema versions are fields in JSON documents.  Backwards-compatible public
 model additions may use the same major schema version.  Incompatible changes
@@ -54,6 +59,72 @@ benchmark data:
 ``ComparisonReport`` and ``ComparisonResult``
     Represent comparison output.  A report identifies the baseline and
     candidate executions; each result describes one case in that comparison.
+
+Example artifact
+~~~~~~~~~~~~~~~~
+
+A ``manifest.json`` written by ``RunnerExecution.write_to()`` looks like this:
+
+.. code-block:: json
+
+    {
+      "schema_version": 1,
+      "test_set_id": "tpch-sf10",
+      "comparison_target": "onprem-standard",
+      "runner_execution_id": "run-1",
+      "source_revision": "8f12ab4",
+      "platform": {
+        "os": "ubuntu-24.04",
+        "architecture": "x86_64",
+        "python_version": "3.12.7"
+      },
+      "attributes": {"database": {"version": "8.31.0"}},
+      "benchmark_file": "benchmark.json"
+    }
+
+The matching Python code that produces the artifact directory:
+
+.. code-block:: python
+
+    import json
+    from pathlib import Path
+
+    from exasol.pytest_benchmark import (
+        ArtifactManifest,
+        PlatformMetadata,
+        RunnerExecution,
+    )
+
+    execution = RunnerExecution(
+        manifest=ArtifactManifest(
+            test_set_id="tpch-sf10",
+            comparison_target="onprem-standard",
+            runner_execution_id="run-1",
+            source_revision="8f12ab4",
+            platform=PlatformMetadata(
+                os="ubuntu-24.04",
+                architecture="x86_64",
+                python_version="3.12.7",
+            ),
+            attributes={"database": {"version": "8.31.0"}},
+        ),
+        benchmark=json.loads(Path(".benchmarks/output.json").read_text()),
+    )
+    execution.write_to(
+        Path("benchmark-history/onprem-standard/tpch-sf10/run-1")
+    )
+
+Reading the tree back groups the executions into one
+``TestSetCollection`` per test set and comparison target:
+
+.. code-block:: python
+
+    from exasol.pytest_benchmark.history import load_history
+
+    for collection in load_history(Path("benchmark-history")):
+        print(collection.test_set_id, collection.comparison_target)
+        for execution in collection.executions:
+            print("  ", execution.manifest.runner_execution_id)
 
 Normalized cases and comparison results
 ----------------------------------------

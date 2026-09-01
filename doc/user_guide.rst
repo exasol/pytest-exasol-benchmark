@@ -127,3 +127,15 @@ Example: generate SQL that grows ``target`` to eight copies of ``source``:
    )
    for statement in statements:
        query_func(statement)
+
+Benchmark artifacts
+-------------------
+
+Benchmark results are stored as versioned, Git-trackable artifacts.  The
+on-disk layout, the public models, and the compatibility rules are described
+in:
+
+.. toctree::
+   :maxdepth: 1
+
+   benchmark-history

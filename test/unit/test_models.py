@@ -201,3 +201,24 @@ def test_history_preserves_raw_benchmark_data(tmp_path):
 
 def test_history_returns_empty_for_missing_directory(tmp_path):
     assert load_history(tmp_path / "missing") == []
+
+
+def test_history_groups_executions_of_one_test_set_and_target(tmp_path):
+    execution("run-1").write_to(tmp_path / "onprem-standard" / "set" / "run-1")
+    execution("run-2").write_to(tmp_path / "onprem-standard" / "set" / "run-2")
+    collections = load_history(tmp_path)
+    assert [
+        item.manifest.runner_execution_id for item in collections[0].executions
+    ] == [
+        "run-1",
+        "run-2",
+    ]
+
+
+def test_history_rejects_duplicate_execution_identity_naming_the_manifest(tmp_path):
+    execution("run-1").write_to(tmp_path / "onprem-standard" / "set" / "run-1")
+    execution("run-1").write_to(tmp_path / "onprem-standard" / "set" / "copy")
+    with pytest.raises(
+        ValueError, match=r"duplicate runner execution .*run-1.*and .*copy"
+    ):
+        load_history(tmp_path)
