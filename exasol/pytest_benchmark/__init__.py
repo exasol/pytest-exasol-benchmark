@@ -36,6 +36,26 @@ QueryFunc: TypeAlias = Callable[[str], QueryResult]
 MAX_UNIONS: int = 100
 
 
+def _to_identifier(name: str) -> exp.Identifier:
+    """
+    Turn a schema or table name into a quoted SQL identifier.
+
+    The name is used exactly as given and always rendered quoted, so `target` becomes
+    `"target"` and keeps its case. Enclosing double quotes are stripped first, so
+    `'"target"'` means the same as `target`. Any double quote left in the name is
+    escaped, so a name can never end the identifier and change the statement.
+
+    Note that Exasol upper-cases unquoted identifiers when it resolves them: a table
+    created by `CREATE TABLE bench.target` is called `TARGET` and has to be passed as
+    such. An empty name raises a `ValueError`.
+    """
+    if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
+        name = name[1:-1]
+    if not name:
+        raise ValueError("A schema or table name must not be empty")
+    return exp.to_identifier(name, quoted=True)
+
+
 def linear_row_sql_data_generator(
     schema_name: str,
     output_table_name: str,
@@ -50,7 +70,7 @@ def linear_row_sql_data_generator(
     Returns a list of SQL statements.
     Example:
         factor=3,   max_unions=100 -> 1 SQL statement
-        factor=150, max_unions=100 -> 2 SQL statements: 150 + 50
+        factor=150, max_unions=100 -> 2 SQL statements: 100 + 50
     """
     if factor < 1:
         raise ValueError("factor must be greater than 0")
@@ -60,8 +80,12 @@ def linear_row_sql_data_generator(
     sql_statements: list[str] = []
     remaining = factor
 
-    input_table = exp.table_(table=input_table_name, db=schema_name)
-    output_table = exp.table_(table=output_table_name, db=schema_name)
+    input_table = exp.table_(
+        table=_to_identifier(input_table_name), db=_to_identifier(schema_name)
+    )
+    output_table = exp.table_(
+        table=_to_identifier(output_table_name), db=_to_identifier(schema_name)
+    )
 
     while remaining > 0:
         batch_size: int = min(remaining, max_unions)
@@ -75,8 +99,8 @@ def linear_row_sql_data_generator(
             query = query.union(next_select, distinct=False)
 
         insert = exp.Insert(
+            this=output_table.copy(),
             expression=query,
-            into=output_table.copy(),
         )
 
         sql_statements.append(insert.sql(dialect=Dialects.EXASOL, pretty=True))
@@ -101,8 +125,12 @@ def exponential_row_sql_data_generator(
     if exponent < 1:
         raise ValueError("exponent must be greater than or equal to 1")
 
-    input_table = exp.table_(table=input_table_name, db=schema_name)
-    output_table = exp.table_(table=output_table_name, db=schema_name)
+    input_table = exp.table_(
+        table=_to_identifier(input_table_name), db=_to_identifier(schema_name)
+    )
+    output_table = exp.table_(
+        table=_to_identifier(output_table_name), db=_to_identifier(schema_name)
+    )
 
     source_tables = [input_table, *([output_table] * exponent)]
     return [
@@ -112,6 +140,68 @@ def exponential_row_sql_data_generator(
         ).sql(dialect=Dialects.EXASOL, pretty=True)
         for source_table in source_tables
     ]
+
+
+def linear_row_data_producer(
+    query_func: QueryFunc,
+    schema_name: str,
+    output_table_name: str,
+    input_table_name: str,
+    factor: int,
+    max_unions: int = MAX_UNIONS,
+) -> list[str]:
+    """
+    Copy the rows of `schema_name.input_table_name` into `schema_name.output_table_name`
+    `factor` times, by executing the SQL statements of
+    :func:`linear_row_sql_data_generator` in the generated order.
+
+    Returns the list of executed SQL statements.
+
+    The output table must already exist. The generated statements are INSERTs, so
+    calling this function twice adds `2 * factor` copies in total.
+    """
+    sql_statements = linear_row_sql_data_generator(
+        schema_name=schema_name,
+        output_table_name=output_table_name,
+        input_table_name=input_table_name,
+        factor=factor,
+        max_unions=max_unions,
+    )
+    return _execute_statements(query_func, sql_statements)
+
+
+def exponential_row_data_producer(
+    query_func: QueryFunc,
+    schema_name: str,
+    output_table_name: str,
+    input_table_name: str,
+    exponent: int = 1,
+) -> list[str]:
+    """
+    Grow `schema_name.output_table_name` to `2 ** exponent` copies of the rows of
+    `schema_name.input_table_name`, by executing the SQL statements of
+    :func:`exponential_row_sql_data_generator` in the generated order.
+
+    Returns the list of executed SQL statements.
+
+    The output table must already exist and is expected to be empty. The generated
+    statements are INSERTs which double the output table in place, so calling this
+    function on a non-empty output table compounds the rows already present.
+    """
+    sql_statements = exponential_row_sql_data_generator(
+        schema_name=schema_name,
+        output_table_name=output_table_name,
+        input_table_name=input_table_name,
+        exponent=exponent,
+    )
+    return _execute_statements(query_func, sql_statements)
+
+
+def _execute_statements(query_func: QueryFunc, sql_statements: list[str]) -> list[str]:
+    for sql_statement in sql_statements:
+        logger.debug("Executing SQL statement: %s", sql_statement)
+        query_func(sql_statement)
+    return sql_statements
 
 
 @pytest.fixture
