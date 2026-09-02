@@ -6,6 +6,14 @@ from sqlglot import (
     exp,
 )
 
+from .models import ArtifactManifest as ArtifactManifest
+from .models import ComparisonReport as ComparisonReport
+from .models import ComparisonResult as ComparisonResult
+from .models import NormalizedCase as NormalizedCase
+from .models import PlatformMetadata as PlatformMetadata
+from .models import RunnerExecution as RunnerExecution
+from .models import TestSetCollection as TestSetCollection
+
 __version__ = version("pytest_exasol_benchmark")
 import logging
 from collections.abc import Callable
