@@ -6,8 +6,6 @@ from exasol.pytest_backend import (
     BACKEND_OPTION,
 )
 
-pytest_plugins = ["pytester"]
-
 
 def test_data_producers(pytester):
     """Verifies both producers populate a real table in an Exasol database: the
