@@ -51,6 +51,31 @@ Data generators
 
 The package provides SQL generators for benchmark data:
 
+Schema and table names are always rendered as quoted identifiers, and are used
+exactly as given, so ``"target"`` in Python becomes ``"target"`` in the SQL and keeps
+its case.  Enclosing double quotes are stripped first, so ``'"target"'`` also resolves to
+same as ``"target"``:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Passed as
+     - Rendered as
+   * - ``"target"``
+     - ``"target"``
+   * - ``'"target"'``
+     - ``"target"``
+   * - ``"my table"``
+     - ``"my table"``
+
+A name may therefore contain any character; a double quote inside it is escaped and
+can never end the identifier and change the statement.  Passing an empty name raises a
+``ValueError``.
+
+Note that Exasol converts unquoted identifiers to uppercase.  A table
+created by ``CREATE TABLE bench.target`` is called ``TARGET``, so it has to be passed
+as ``"TARGET"``, not ``"target"``.
+
 ``Linear growth``
 ~~~~~~~~~~~~~~~~~
 .. code-block:: python
@@ -127,6 +152,71 @@ Example: generate SQL that grows ``target`` to eight copies of ``source``:
    )
    for statement in statements:
        query_func(statement)
+
+Data producers
+--------------
+
+The data producers execute the generated SQL statements, in the generated order,
+through the ``query_func`` you supplied:
+
+``linear_row_data_producer``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: python
+
+   linear_row_data_producer(
+       query_func: QueryFunc,
+       schema_name: str,
+       output_table_name: str,
+       input_table_name: str,
+       factor: int,
+       max_unions: int = MAX_UNIONS,
+   ) -> list[str]
+
+Example: insert three copies of ``source`` into ``target``:
+
+.. code-block:: python
+
+   def test_query_performance(exasol_benchmark, query_func):
+       linear_row_data_producer(
+           query_func,
+           schema_name="BENCHMARK",
+           output_table_name="target",
+           input_table_name="source",
+           factor=3,
+       )
+
+``exponential_row_data_producer``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: python
+
+   exponential_row_data_producer(
+       query_func: QueryFunc,
+       schema_name: str,
+       output_table_name: str,
+       input_table_name: str,
+       exponent: int = 1,
+   ) -> list[str]
+
+Example: grow ``target`` to eight copies of ``source``:
+
+.. code-block:: python
+
+   def test_query_performance(exasol_benchmark, query_func):
+       exponential_row_data_producer(
+           query_func,
+           schema_name="BENCHMARK",
+           output_table_name="target",
+           input_table_name="source",
+           exponent=3,
+       )
+
+Both functions return the list of executed SQL statements.
+
+.. note::
+   The producers do not create, truncate, or drop any table --- the output table must
+   already exist and is expected to be empty.  The generated statements are ``INSERT``
+   statements, so calling a producer again on a non-empty output table adds to the rows
+   already present instead of replacing them.
 
 Benchmark artifacts
 -------------------

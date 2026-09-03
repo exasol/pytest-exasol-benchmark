@@ -6,8 +6,6 @@ from exasol.pytest_backend import (
     BACKEND_OPTION,
 )
 
-pytest_plugins = ["pytester"]
-
 
 def test_query_cache_disabled(pytester):
     test_code = dedent("""

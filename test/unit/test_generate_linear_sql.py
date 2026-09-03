@@ -37,6 +37,10 @@ def test_generate_linear_sql_batches_by_max_unions(
         tree = parse_one(stmt, dialect=Dialects.EXASOL)
 
         assert isinstance(tree, exp.Insert)
+        assert (
+            tree.this.sql(dialect=Dialects.EXASOL)
+            == '"test_schema"."test_output_table"'
+        )
         assert len(list(tree.find_all(exp.Select))) == expected_selects
         assert len(list(tree.find_all(exp.Union))) == expected_unions
 

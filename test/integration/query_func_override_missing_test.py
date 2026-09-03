@@ -2,8 +2,6 @@ from textwrap import dedent
 
 import pytest
 
-pytest_plugins = ["pytester"]
-
 
 def test_missing_query_func_override_throws(pytester):
     test_code = dedent("""

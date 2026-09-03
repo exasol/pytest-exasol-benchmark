@@ -24,6 +24,10 @@ def test_exponential_row_sql_data_generator(exponent):
         tree = parse_one(statement, dialect=Dialects.EXASOL)
 
         assert isinstance(tree, exp.Insert)
+        assert (
+            tree.this.sql(dialect=Dialects.EXASOL)
+            == '"test_schema"."test_output_table"'
+        )
         assert len(list(tree.find_all(exp.Select))) == 1
 
         source_table = tree.expression.args["from_"].this.name
