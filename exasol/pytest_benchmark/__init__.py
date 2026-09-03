@@ -66,6 +66,7 @@ def linear_row_sql_data_generator(
     """
     Generate SQL statements that copy rows from `schema.input_table_name` to `schema.output_table_name`
     `factor` times using UNION ALL. For each `max_unions` a new SQL statement is added to the list.
+    Therefore, the generator returns `ceil(factor / max_unions)` SQL statements.
 
     Returns a list of SQL statements.
     Example:
@@ -121,6 +122,9 @@ def exponential_row_sql_data_generator(
     Each subsequent SQL statement inserts the output table into itself, doubling its
     row count. Consequently, executing all returned SQL statements produces
     ``2 ** exponent`` copies of the input table's rows.
+
+    Therefore, the generator returns ``exponent + 1`` SQL statements: one initial copy
+    followed by ``exponent`` doubling statements.
     """
     if exponent < 1:
         raise ValueError("exponent must be greater than or equal to 1")
