@@ -53,7 +53,7 @@ The package provides SQL generators for benchmark data:
 
 Schema and table names are always rendered as quoted identifiers, and are used
 exactly as given, so ``"target"`` in Python becomes ``"target"`` in the SQL and keeps
-its case.  Enclosing double quotes are stripped first, so ``'"target"'`` means the
+its case.  Enclosing double quotes are stripped first, so ``'"target"'`` also resolves to
 same as ``"target"``:
 
 .. list-table::
@@ -69,10 +69,10 @@ same as ``"target"``:
      - ``"my table"``
 
 A name may therefore contain any character; a double quote inside it is escaped and
-can never end the identifier and change the statement.  An empty name raises a
+can never end the identifier and change the statement.  Passing an empty name raises a
 ``ValueError``.
 
-Note that Exasol upper-cases unquoted identifiers when it resolves them.  A table
+Note that Exasol converts unquoted identifiers to uppercase.  A table
 created by ``CREATE TABLE bench.target`` is called ``TARGET``, so it has to be passed
 as ``"TARGET"``, not ``"target"``.
 

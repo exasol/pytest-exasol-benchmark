@@ -42,12 +42,12 @@ def _to_identifier(name: str) -> exp.Identifier:
 
     The name is used exactly as given and always rendered quoted, so `target` becomes
     `"target"` and keeps its case. Enclosing double quotes are stripped first, so
-    `'"target"'` means the same as `target`. Any double quote left in the name is
+    `'"target"'` also resolves to `target`. Any double quote left in the name is
     escaped, so a name can never end the identifier and change the statement.
 
-    Note that Exasol upper-cases unquoted identifiers when it resolves them: a table
+    Note that Exasol converts unquoted identifiers to uppercase: a table
     created by `CREATE TABLE bench.target` is called `TARGET` and has to be passed as
-    such. An empty name raises a `ValueError`.
+    such. Passing an empty name raises a `ValueError`.
     """
     if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
         name = name[1:-1]
