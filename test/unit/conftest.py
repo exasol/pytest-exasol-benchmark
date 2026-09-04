@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 
 from exasol.pytest_benchmark import QueryResult
@@ -24,3 +26,12 @@ class RecordingQueryFunc:
 @pytest.fixture
 def recording_query_func() -> RecordingQueryFunc:
     return RecordingQueryFunc()
+
+
+@pytest.fixture
+def make_recording_query_func() -> Callable[[QueryResult], RecordingQueryFunc]:
+    """Create a ``RecordingQueryFunc`` which returns ``result`` for every call.
+
+    For tests which need a query result back, such as the table size inspector.
+    """
+    return RecordingQueryFunc

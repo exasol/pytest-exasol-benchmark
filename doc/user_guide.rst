@@ -4,6 +4,11 @@
 ============================
 ``pytest-exasol-benchmark`` provides fixtures and helper function to perform benchmarking operations.
 
+.. note::
+   The project covers regular Exasol tables only.  Virtual schemas and virtual tables
+   are out of scope: they are read-only, so the data producers cannot populate them,
+   and Exasol reports no row count for them in ``EXA_ALL_TABLES``.
+
 Fixtures
 --------
 
@@ -25,6 +30,13 @@ Implement it to return a callable that accepts a SQL string and executes it agai
    @pytest.fixture()
    def query_func(pyexasol_connection):
        return pyexasol_connection.execute
+
+The helpers which only execute statements, such as the data producers, ignore what the
+callable returns.  The helpers which read data back, such as ``get_table_size``, need
+the query result: an iterable of rows, where each row is a sequence of column values.
+``pyexasol``'s ``execute`` satisfies both, as long as the connection keeps the default
+fetch mode: with ``fetch_dict=True`` its rows are dictionaries, which the helpers
+reading data back do not accept.
 
 ``exasol_benchmark``
 ~~~~~~~~~~~~~~~~~~~~
@@ -217,6 +229,79 @@ Both functions return the list of executed SQL statements.
    already exist and is expected to be empty.  The generated statements are ``INSERT``
    statements, so calling a producer again on a non-empty output table adds to the rows
    already present instead of replacing them.
+
+Table size
+----------
+
+``get_table_size`` reads the current size of an existing, accessible table from the
+Exasol system tables ``SYS.EXA_ALL_TABLES`` and ``SYS.EXA_ALL_OBJECT_SIZES``, which it
+joins through the table's object ID:
+
+.. code-block:: python
+
+   get_table_size(
+       query_func: QueryFunc,
+       schema_name: str,
+       table_name: str,
+   ) -> TableSize
+
+It returns a frozen ``TableSize`` dataclass:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Attribute
+     - Meaning
+   * - ``row_count``
+     - Number of rows in the table
+   * - ``raw_bytes``
+     - Uncompressed data volume in bytes
+   * - ``mem_bytes``
+     - Compressed data volume in bytes
+   * - ``last_commit``
+     - ``datetime`` of the most recent modification
+
+Example: measure how much a benchmark table grew:
+
+.. code-block:: python
+
+   def test_query_performance(exasol_benchmark, query_func):
+       before = get_table_size(query_func, "BENCHMARK", "TARGET")
+       linear_row_data_producer(
+           query_func,
+           schema_name="BENCHMARK",
+           output_table_name="TARGET",
+           input_table_name="SOURCE",
+           factor=3,
+       )
+       after = get_table_size(query_func, "BENCHMARK", "TARGET")
+       assert after.row_count > before.row_count
+
+Unlike the data generators, the schema and table name are not rendered as identifiers:
+the system tables hold them as string values, so they are rendered as string literals.
+They are still used exactly as given, only stripped of enclosing double quotes, and an
+empty name raises a ``ValueError``.  Since Exasol stores the name of an unquoted
+identifier uppercase, a table created by ``CREATE TABLE bench.target`` has to be
+looked up as schema ``BENCH`` and table ``TARGET``.
+
+A table which does not exist or is not accessible, and a query result which does not
+have the expected shape, raise a ``ValueError`` naming the table and the problem.
+
+.. note::
+   Exasol reports the sizes and the last-commit timestamp as of the last ``COMMIT``, so
+   a table modified in an open transaction is measured as it was before.  The sizes in
+   ``SYS.EXA_ALL_OBJECT_SIZES`` are calculated recursively, which is not free on a
+   database with many objects.
+
+``get_table_size_sql`` returns the same statement without executing it, for example to
+log or to run it yourself:
+
+.. code-block:: python
+
+   get_table_size_sql(
+       schema_name: str,
+       table_name: str,
+   ) -> str
 
 Benchmark artifacts
 -------------------
