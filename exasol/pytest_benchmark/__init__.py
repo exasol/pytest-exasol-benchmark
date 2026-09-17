@@ -1,3 +1,5 @@
+"""Pytest plugin for benchmarking queries against an Exasol database."""
+
 from contextlib import contextmanager
 from importlib.metadata import version
 
@@ -6,6 +8,16 @@ from sqlglot import (
     exp,
 )
 
+from .conversion import (
+    single_row,
+    to_datetime,
+    to_int,
+)
+from .identifier import (
+    normalized_name,
+    to_identifier,
+    to_string_literal,
+)
 from .models import ArtifactManifest as ArtifactManifest
 from .models import ComparisonReport as ComparisonReport
 from .models import ComparisonResult as ComparisonResult
@@ -17,6 +29,8 @@ from .models import TestSetCollection as TestSetCollection
 __version__ = version("pytest_exasol_benchmark")
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
 from typing import (
     Any,
     TypeAlias,
@@ -35,25 +49,19 @@ QueryFunc: TypeAlias = Callable[[str], QueryResult]
 
 MAX_UNIONS: int = 100
 
+#: Number of columns the table size query selects, see `get_table_size_sql`.
+TABLE_SIZE_COLUMNS: int = 4
 
-def _to_identifier(name: str) -> exp.Identifier:
-    """
-    Turn a schema or table name into a quoted SQL identifier.
+#: Appended to the error raised when the table size query matches no table.
+_TABLE_NOT_FOUND_HINT = (
+    "The table was not found or is not accessible. Schema and table name are matched "
+    "exactly, and Exasol stores the name of an unquoted identifier uppercase, so a "
+    "table created by 'CREATE TABLE bench.target' has to be passed as schema 'BENCH' "
+    "and table 'TARGET'"
+)
 
-    The name is used exactly as given and always rendered quoted, so `target` becomes
-    `"target"` and keeps its case. Enclosing double quotes are stripped first, so
-    `'"target"'` also resolves to `target`. Any double quote left in the name is
-    escaped, so a name can never end the identifier and change the statement.
-
-    Note that Exasol converts unquoted identifiers to uppercase: a table
-    created by `CREATE TABLE bench.target` is called `TARGET` and has to be passed as
-    such. Passing an empty name raises a `ValueError`.
-    """
-    if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
-        name = name[1:-1]
-    if not name:
-        raise ValueError("A schema or table name must not be empty")
-    return exp.to_identifier(name, quoted=True)
+#: Appended to the error raised when the table size query reports no value.
+_VIRTUAL_TABLE_HINT = "Note that virtual schemas and virtual tables are not supported"
 
 
 def linear_row_sql_data_generator(
@@ -82,10 +90,10 @@ def linear_row_sql_data_generator(
     remaining = factor
 
     input_table = exp.table_(
-        table=_to_identifier(input_table_name), db=_to_identifier(schema_name)
+        table=to_identifier(input_table_name), db=to_identifier(schema_name)
     )
     output_table = exp.table_(
-        table=_to_identifier(output_table_name), db=_to_identifier(schema_name)
+        table=to_identifier(output_table_name), db=to_identifier(schema_name)
     )
 
     while remaining > 0:
@@ -130,10 +138,10 @@ def exponential_row_sql_data_generator(
         raise ValueError("exponent must be greater than or equal to 1")
 
     input_table = exp.table_(
-        table=_to_identifier(input_table_name), db=_to_identifier(schema_name)
+        table=to_identifier(input_table_name), db=to_identifier(schema_name)
     )
     output_table = exp.table_(
-        table=_to_identifier(output_table_name), db=_to_identifier(schema_name)
+        table=to_identifier(output_table_name), db=to_identifier(schema_name)
     )
 
     source_tables = [input_table, *([output_table] * exponent)]
@@ -206,6 +214,95 @@ def _execute_statements(query_func: QueryFunc, sql_statements: list[str]) -> lis
         logger.debug("Executing SQL statement: %s", sql_statement)
         query_func(sql_statement)
     return sql_statements
+
+
+@dataclass(frozen=True)
+class TableSize:
+    """
+    The size of an existing Exasol table, as reported by the system tables.
+
+    `row_count` is the number of rows, `raw_bytes` the uncompressed and `mem_bytes`
+    the compressed data volume in bytes, and `last_commit` the time of the most
+    recent modification.  See :func:`get_table_size` for how the values are read.
+    """
+
+    row_count: int
+    raw_bytes: int
+    mem_bytes: int
+    last_commit: datetime
+
+
+def get_table_size_sql(schema_name: str, table_name: str) -> str:
+    """
+    Generate the SQL statement which reads the size of `schema_name.table_name` from
+    the Exasol system tables.
+
+    The statement joins `SYS.EXA_ALL_TABLES` and `SYS.EXA_ALL_OBJECT_SIZES` through
+    the table's object ID and selects row count, uncompressed size, compressed size
+    and last-commit timestamp, in that order.
+
+    The system tables hold schema and table names as string values, so both names are
+    rendered as string literals and are used exactly as given, only stripped of
+    enclosing double quotes.  Note that Exasol stores the name of an unquoted
+    identifier uppercase: a table created by `CREATE TABLE bench.target` has to be
+    looked up as schema `BENCH` and table `TARGET`.
+    """
+    tables = exp.table_("EXA_ALL_TABLES", db="SYS", alias="T")
+    object_sizes = exp.table_("EXA_ALL_OBJECT_SIZES", db="SYS", alias="S")
+    query = (
+        exp.select(
+            "T.TABLE_ROW_COUNT",
+            "S.RAW_OBJECT_SIZE",
+            "S.MEM_OBJECT_SIZE",
+            "S.LAST_COMMIT",
+        )
+        .from_(tables)
+        .join(
+            object_sizes,
+            on=exp.column("OBJECT_ID", "S").eq(exp.column("TABLE_OBJECT_ID", "T")),
+            join_type="inner",
+        )
+        .where(exp.column("TABLE_SCHEMA", "T").eq(to_string_literal(schema_name)))
+        .where(exp.column("TABLE_NAME", "T").eq(to_string_literal(table_name)))
+    )
+    return query.sql(dialect=Dialects.EXASOL, pretty=True)
+
+
+def get_table_size(
+    query_func: QueryFunc, schema_name: str, table_name: str
+) -> TableSize:
+    """
+    Read the current size of the existing table `schema_name.table_name`, by executing
+    the SQL statement of :func:`get_table_size_sql` through `query_func`.
+
+    `query_func` has to return the query result: an iterable of rows, where each row
+    is a sequence of column values, as returned by `pyexasol`'s `execute`.
+
+    Exasol reports the sizes and the last-commit timestamp as of the last `COMMIT`, so
+    a table modified in an open transaction is measured as it was before.  The sizes
+    of `SYS.EXA_ALL_OBJECT_SIZES` are calculated recursively, which is not free on a
+    database with many objects.
+
+    Raises a `ValueError` if the table does not exist, is not accessible, or if the
+    query result does not have the expected shape.
+    """
+    source = f'table "{normalized_name(schema_name)}"."{normalized_name(table_name)}"'
+    sql_statement = get_table_size_sql(schema_name=schema_name, table_name=table_name)
+    logger.debug("Executing SQL statement: %s", sql_statement)
+    row = single_row(
+        query_func(sql_statement),
+        source,
+        expected_columns=TABLE_SIZE_COLUMNS,
+        null_hint=_TABLE_NOT_FOUND_HINT,
+    )
+    return TableSize(
+        row_count=to_int(row[0], "row count", source, _VIRTUAL_TABLE_HINT),
+        raw_bytes=to_int(row[1], "raw size", source, _VIRTUAL_TABLE_HINT),
+        mem_bytes=to_int(row[2], "memory size", source, _VIRTUAL_TABLE_HINT),
+        last_commit=to_datetime(
+            row[3], "last-commit timestamp", source, _VIRTUAL_TABLE_HINT
+        ),
+    )
 
 
 @pytest.fixture
