@@ -8,7 +8,7 @@ Integration Tests
 -----------------
 
 The integration tests use the plugin `pytest-exasol-backend
-<https://github.com/exasol/pytest-exasol-backend>`_ for the database, so its options
+<https://github.com/exasol/pytest-backend>`_ for the database, so its options
 select the backend, for example ``--backend=onprem``, and configure the database. The
 CI runs the integration tests with ``--backend=onprem``.
 
