@@ -1,13 +1,9 @@
 from textwrap import dedent
 
 import pytest
-from exasol.pytest_backend import (
-    BACKEND_ONPREM,
-    BACKEND_OPTION,
-)
 
 
-def test_run_benchmark(pytester):
+def test_run_benchmark(pytester, backend_args):
     test_code = dedent("""
         import pytest
         import random
@@ -24,9 +20,9 @@ def test_run_benchmark(pytester):
             exasol_benchmark(do_something)
     """)
     pytester.makepyfile(test_code)
-    result = pytester.runpytest(BACKEND_OPTION, BACKEND_ONPREM)
+    result = pytester.runpytest(*backend_args)
     assert result.ret == pytest.ExitCode.OK
-    # SaaS tests are skipped
+    # the tests for the other backend are skipped
     result.assert_outcomes(passed=1, skipped=1)
     result.stdout.fnmatch_lines(
         [

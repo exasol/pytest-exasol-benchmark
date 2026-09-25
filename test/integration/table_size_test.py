@@ -1,16 +1,12 @@
 from textwrap import dedent
 
 import pytest
-from exasol.pytest_backend import (
-    BACKEND_ONPREM,
-    BACKEND_OPTION,
-)
 
 
-def test_table_size(pytester):
+def test_table_size(pytester, backend_args):
     """Verifies the table size inspector against a real Exasol database: the
     generated SQL is accepted, reports the size of a created table, fails for a
-    missing one, and the SaaS variants skip."""
+    missing one, and the variants for the other backend skip."""
     test_code = dedent('''
         from datetime import datetime
 
@@ -79,7 +75,7 @@ def test_table_size(pytester):
                 get_table_size(query_func, benchmark_schema, "DOES_NOT_EXIST")
     ''')
     pytester.makepyfile(test_code)
-    result = pytester.runpytest(BACKEND_OPTION, BACKEND_ONPREM)
+    result = pytester.runpytest(*backend_args)
     assert result.ret == pytest.ExitCode.OK
-    # SaaS tests are skipped
+    # the tests for the other backend are skipped
     result.assert_outcomes(passed=2, skipped=2)

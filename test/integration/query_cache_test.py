@@ -1,13 +1,9 @@
 from textwrap import dedent
 
 import pytest
-from exasol.pytest_backend import (
-    BACKEND_ONPREM,
-    BACKEND_OPTION,
-)
 
 
-def test_query_cache_disabled(pytester):
+def test_query_cache_disabled(pytester, backend_args):
     test_code = dedent("""
         import pytest
 
@@ -27,7 +23,7 @@ def test_query_cache_disabled(pytester):
             assert actual_query_cache == "ON"
     """)
     pytester.makepyfile(test_code)
-    result = pytester.runpytest(BACKEND_OPTION, BACKEND_ONPREM)
+    result = pytester.runpytest(*backend_args)
     assert result.ret == pytest.ExitCode.OK
-    # SaaS tests are skipped
+    # the tests for the other backend are skipped
     result.assert_outcomes(passed=2, skipped=2)
