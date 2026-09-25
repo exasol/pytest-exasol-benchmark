@@ -1,15 +1,12 @@
 from textwrap import dedent
 
 import pytest
-from exasol.pytest_backend import (
-    BACKEND_ONPREM,
-    BACKEND_OPTION,
-)
 
 
-def test_data_producers(pytester):
+def test_data_producers(pytester, backend_args):
     """Verifies both producers populate a real table in an Exasol database: the
-    generated SQL is accepted, executes in order, and the SaaS variants skip."""
+    generated SQL is accepted, executes in order, and the variants for the other
+    backend skip."""
     test_code = dedent("""
         import pytest
 
@@ -78,7 +75,7 @@ def test_data_producers(pytester):
             assert count_rows(query_func, benchmark_schema, output_table) == 4 * INPUT_ROWS
     """)
     pytester.makepyfile(test_code)
-    result = pytester.runpytest(BACKEND_OPTION, BACKEND_ONPREM)
+    result = pytester.runpytest(*backend_args)
     assert result.ret == pytest.ExitCode.OK
-    # SaaS tests are skipped
+    # the tests for the other backend are skipped
     result.assert_outcomes(passed=2, skipped=2)

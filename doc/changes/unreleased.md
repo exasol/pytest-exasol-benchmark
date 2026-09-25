@@ -31,6 +31,8 @@ existing table.
   result conversion to `conversion`
 * #12: Made the `conversion` helpers independent of the table size query, so they can
   convert the result of any query
+* #31: Made the integration tests share a single database per test session instead
+  of starting one per test
 
 ## Dependency Updates
 
