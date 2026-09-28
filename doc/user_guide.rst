@@ -314,3 +314,32 @@ in:
    :maxdepth: 1
 
    benchmark-history
+
+Command line interface
+----------------------
+
+The package installs the ``pytest-exasol-benchmark`` executable for working
+with benchmark artifacts.  None of its commands runs pytest or benchmarks: run
+pytest with ``--benchmark-json`` directly and process the written JSON with
+the commands below.
+
+``package``
+    Packages the JSON of one pytest run as a portable runner artifact.  The
+    options ``--benchmark-json``, ``--test-set-id``, ``--comparison-target``,
+    ``--runner-execution-id``, ``--source-revision``, and ``--output-dir`` are
+    required.
+
+``compare``
+    Compares the runner artifacts in a directory with the benchmark history of
+    the current checkout (``--history-root``, default ``benchmark-history``).
+    A benchmark slower than ``--threshold`` percent (default ``10``) is a
+    regression.
+
+``store``
+    Stores the runner artifacts in a directory as the benchmark history below
+    ``--history-root``.
+
+The command set is not complete yet: the commands validate their arguments,
+but otherwise fail with a "not implemented" error.  ``pytest-exasol-benchmark
+--help`` and ``pytest-exasol-benchmark <command> --help`` describe the
+available options.
