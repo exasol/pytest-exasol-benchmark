@@ -6,7 +6,7 @@ import pytest
 def test_data_producers(pytester, backend_args):
     """Verifies both producers populate a real table in an Exasol database: the
     generated SQL is accepted, executes in order, and the variants for the other
-    backend skip."""
+    backend are skipped."""
     test_code = dedent("""
         import pytest
 

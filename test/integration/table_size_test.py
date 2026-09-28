@@ -6,7 +6,7 @@ import pytest
 def test_table_size(pytester, backend_args):
     """Verifies the table size inspector against a real Exasol database: the
     generated SQL is accepted, reports the size of a created table, fails for a
-    missing one, and the variants for the other backend skip."""
+    missing one, and the variants for the other backend are skipped."""
     test_code = dedent('''
         from datetime import datetime
 
