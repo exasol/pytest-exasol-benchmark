@@ -28,6 +28,11 @@ MANIFEST_FILENAME = "manifest.json"
 Identifier = Annotated[
     str, Field(min_length=1, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ]
+# Describes the Identifier pattern for error messages; keep both in sync.
+IDENTIFIER_RULE = (
+    "must start with a letter or digit and contain only letters, digits,"
+    " '.', '_' and '-'"
+)
 ModelT = TypeVar("ModelT", bound="Model")
 
 

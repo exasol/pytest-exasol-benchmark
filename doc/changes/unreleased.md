@@ -4,8 +4,9 @@
 
 Added versioned public models for benchmark artifacts, the Git-trackable
 benchmark-history layout, and comparison reports, data producer helpers which
-execute the generated benchmark-data SQL, and an inspector for the size of an
-existing table.
+execute the generated benchmark-data SQL, an inspector for the size of an
+existing table, and the `pytest-exasol-benchmark` executable with skeletons of its
+`package`, `compare`, and `store` commands.
 
 ## Features
 
@@ -14,6 +15,8 @@ existing table.
 * #12: Added `get_table_size` and `get_table_size_sql`, which report the row count,
   the uncompressed and compressed size, and the last-commit timestamp of an existing
   table
+* #13: Added the `pytest-exasol-benchmark` executable with the command skeletons
+  `package`, `compare`, and `store`, which validate their arguments
 
 ## Bugfixes
 
@@ -38,4 +41,5 @@ existing table.
 
 ### `main`
 
+* Added dependency `click:8.5.0`
 * Added dependency `pydantic:2.13.4`
