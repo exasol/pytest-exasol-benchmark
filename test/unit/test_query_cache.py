@@ -20,9 +20,13 @@ def test_re_enables_query_cache_after_success():
 
 def test_re_enables_query_cache_when_benchmark_fails():
     queries = []
-    with pytest.raises(RuntimeError, match="benchmark failed"):
+
+    def failing_benchmark():
         with disable_query_cache_session(queries.append, True):
             raise RuntimeError("benchmark failed")
+
+    with pytest.raises(RuntimeError, match="benchmark failed"):
+        failing_benchmark()
     assert queries == [get_disable_query_cache_sql(), get_enable_query_cache_sql()]
 
 
