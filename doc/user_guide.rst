@@ -318,11 +318,12 @@ in:
 Command line interface
 ----------------------
 
-The package installs the ``pytest-exasol-benchmark`` executable for working
-with benchmark artifacts.  None of its commands runs pytest or benchmarks: run
-pytest with ``--benchmark-json`` directly and process the written JSON with
-the commands below.
-The package provides the ``pytest-exasol-benchmark`` command-line tool for processing benchmark artifacts. It does not run pytest or execute benchmarks. To generate benchmark data, run pytest directly with the ``--benchmark-json`` option, then use ``pytest-exasol-benchmark`` with the commands below to process the resulting JSON file.
+The package provides the ``pytest-exasol-benchmark`` command-line tool for
+processing benchmark artifacts.  It does not run pytest or execute benchmarks.
+To generate benchmark data, run pytest directly with the ``--benchmark-json``
+option, then use ``pytest-exasol-benchmark`` with the commands below to process
+the resulting JSON file.
+
 ``package``
     Packages the JSON of one pytest run as a portable runner artifact.  The
     options ``--benchmark-json``, ``--test-set-id``, ``--comparison-target``,
