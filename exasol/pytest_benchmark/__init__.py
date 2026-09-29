@@ -19,6 +19,7 @@ from .identifier import (
     to_string_literal,
 )
 from .models import ArtifactManifest as ArtifactManifest
+from .models import BenchmarkDocument as BenchmarkDocument
 from .models import ComparisonReport as ComparisonReport
 from .models import ComparisonResult as ComparisonResult
 from .models import NormalizedCase as NormalizedCase

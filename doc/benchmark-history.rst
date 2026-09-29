@@ -118,6 +118,30 @@ The matching Python code that produces the artifact directory:
         Path("benchmark-history/onprem-standard/tpch-sf10/run-1")
     )
 
+The ``package`` command of the ``pytest-exasol-benchmark`` executable creates
+such a directory from the JSON written by ``pytest --benchmark-json``.  Unlike
+``RunnerExecution.write_to()``, which serializes the parsed document again, it
+copies the JSON byte for byte and derives ``platform`` from its
+``machine_info``.  The structure it requires from the JSON is described by the
+``BenchmarkDocument`` model.  The same validation is available in Python:
+
+.. code-block:: python
+
+    from exasol.pytest_benchmark.artifact import (
+        package_artifact,
+        validate_artifact,
+    )
+
+    package_artifact(
+        Path(".benchmarks/output.json"),
+        Path("artifact"),
+        test_set_id="tpch-sf10",
+        comparison_target="onprem-standard",
+        runner_execution_id="run-1",
+        source_revision="8f12ab4",
+    )
+    execution = validate_artifact(Path("artifact"))
+
 Reading the tree back groups the executions into one
 ``TestSetCollection`` per test set and comparison target:
 

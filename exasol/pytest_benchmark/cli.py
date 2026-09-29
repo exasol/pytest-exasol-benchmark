@@ -14,6 +14,10 @@ from pydantic import (
     ValidationError,
 )
 
+from .artifact import (
+    ArtifactError,
+    package_artifact,
+)
 from .models import (
     IDENTIFIER_RULE,
     Identifier,
@@ -40,7 +44,7 @@ def _identifier_option(name: str, help_text: str):
     )
 
 
-def _validate_history_root(
+def _validate_directory(
     _ctx: click.Context, _param: click.Parameter, value: str
 ) -> Path:
     # An empty path would silently resolve to the current directory.
@@ -55,7 +59,7 @@ def _history_root_option(help_text: str):
         default=DEFAULT_HISTORY_ROOT,
         show_default=True,
         type=click.Path(file_okay=False),
-        callback=_validate_history_root,
+        callback=_validate_directory,
         help=help_text,
     )
 
@@ -104,7 +108,8 @@ def main() -> None:
 @click.option(
     "--output-dir",
     required=True,
-    type=click.Path(file_okay=False, path_type=Path),
+    type=click.Path(file_okay=False),
+    callback=_validate_directory,
     help="Directory the portable runner artifact is written to.",
 )
 def package(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -118,9 +123,22 @@ def package(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     """Package benchmark JSON as a runner artifact.
 
     Packages the JSON written by pytest --benchmark-json as a portable runner
-    artifact.
+    artifact: the output directory receives the unchanged JSON and a manifest
+    with the given IDs and the runner platform.  The output directory has to be
+    empty or missing.
     """
-    raise _not_implemented("package")
+    try:
+        package_artifact(
+            benchmark_json,
+            output_dir,
+            test_set_id=test_set_id,
+            comparison_target=comparison_target,
+            runner_execution_id=runner_execution_id,
+            source_revision=source_revision,
+        )
+    except ArtifactError as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(f"Packaged runner artifact to {output_dir}")
 
 
 @main.command()
