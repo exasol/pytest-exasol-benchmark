@@ -21,6 +21,7 @@ command and skeletons of its `compare` and `store` commands.
 
 ## Bugfixes
 
+* #14: Fixed the query cache staying disabled after a failing benchmark
 * #11: Fixed `linear_row_sql_data_generator` generating `INSERT` statements without
   a target table
 * #11: Fixed inconsistent identifier quoting in the SQL generators.  Schema and table
