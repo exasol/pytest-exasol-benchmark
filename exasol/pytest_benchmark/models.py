@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import (
     Path,
     PurePosixPath,
@@ -118,14 +119,20 @@ class ArtifactManifest(Model):
 
         The manifest is written to a temporary file which then replaces
         ``MANIFEST_FILENAME``, so readers never see a partially written one.
+        The temporary file has a unique name, so concurrent writers never write
+        to the same one, and is created exclusively rather than with
+        ``tempfile``, so the umask applies to its permissions as usual.
         """
-        path = directory / MANIFEST_FILENAME
-        temporary = directory / f"{MANIFEST_FILENAME}.tmp"
+        temporary = directory / f".{MANIFEST_FILENAME}.{uuid.uuid4().hex}.tmp"
+        created = False
         try:
-            temporary.write_text(self.to_json() + "\n", encoding="utf-8")
-            os.replace(temporary, path)
+            with temporary.open("x", encoding="utf-8") as file:
+                created = True
+                file.write(self.to_json() + "\n")
+            os.replace(temporary, directory / MANIFEST_FILENAME)
         except BaseException:
-            temporary.unlink(missing_ok=True)
+            if created:
+                temporary.unlink(missing_ok=True)
             raise
 
 
@@ -212,7 +219,12 @@ class RunnerExecution(Model):
         """Write this execution to a per-run artifact directory.
 
         The manifest is written last, so an interrupted write never leaves a
-        manifest without its benchmark file.
+        manifest without its benchmark file.  Unlike
+        :func:`~exasol.pytest_benchmark.artifact.package_artifact`, this method
+        overwrites existing files and does not remove what it wrote if it
+        fails, so a failed write may leave the benchmark file behind.  It also
+        serializes the benchmark document again rather than copying the bytes
+        written by pytest-benchmark.
         """
         directory.mkdir(parents=True, exist_ok=True)
         (directory / self.manifest.benchmark_file).write_text(

@@ -1,6 +1,7 @@
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -331,6 +332,37 @@ def test_manifest_write_leaves_no_partial_manifest(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_manifest_write_uses_unique_temporary_files(tmp_path, monkeypatch):
+    manifest = ArtifactManifest.from_json(
+        json.dumps({**IDS, "platform": {"os": "Linux", "architecture": "x86_64"}})
+    )
+    temporaries = []
+    replace = os.replace
+
+    def record(source, target):
+        temporaries.append(Path(source).name)
+        replace(source, target)
+
+    monkeypatch.setattr("os.replace", record)
+    manifest.write_to(tmp_path)
+    manifest.write_to(tmp_path)
+    assert len(set(temporaries)) == 2
+    assert not any(name == MANIFEST_FILENAME for name in temporaries)
+    assert [p.name for p in tmp_path.iterdir()] == [MANIFEST_FILENAME]
+
+
+def test_manifest_write_applies_umask(tmp_path):
+    manifest = ArtifactManifest.from_json(
+        json.dumps({**IDS, "platform": {"os": "Linux", "architecture": "x86_64"}})
+    )
+    umask = os.umask(0o022)
+    try:
+        manifest.write_to(tmp_path)
+    finally:
+        os.umask(umask)
+    assert stat.S_IMODE((tmp_path / MANIFEST_FILENAME).stat().st_mode) == 0o644
+
+
 def test_package_reports_symlink_loop(source, tmp_path):
     (tmp_path / "loop").symlink_to(tmp_path / "loop")
     with pytest.raises(ArtifactError, match="cannot write the artifact to"):
@@ -421,6 +453,16 @@ def test_validate_artifact_rejects_invalid_manifest(bundle):
         " schema version: 2; 'test_set_id' is missing; 'comparison_target' is"
         " missing; 'runner_execution_id' is missing; 'source_revision' is"
         " missing; 'platform' is missing"
+    )
+
+
+def test_validate_artifact_rejects_malformed_manifest(bundle):
+    (bundle / MANIFEST_FILENAME).write_text('{"schema_version":')
+    with pytest.raises(ArtifactError) as error:
+        validate_artifact(bundle)
+    assert str(error.value) == (
+        f"{bundle / MANIFEST_FILENAME} is invalid: EOF while parsing a value at"
+        " line 1 column 18"
     )
 
 
