@@ -19,6 +19,7 @@ from .identifier import (
     to_string_literal,
 )
 from .models import ArtifactManifest as ArtifactManifest
+from .models import BenchmarkDocument as BenchmarkDocument
 from .models import ComparisonReport as ComparisonReport
 from .models import ComparisonResult as ComparisonResult
 from .models import NormalizedCase as NormalizedCase
@@ -326,9 +327,13 @@ def get_disable_query_cache_sql() -> str:
 def disable_query_cache_session(query_func: QueryFunc, disable_query_cache: bool):
     if disable_query_cache:
         query_func(get_disable_query_cache_sql())
-    yield
-    if disable_query_cache:
-        query_func(get_enable_query_cache_sql())
+    try:
+        yield
+    finally:
+        # Re-enabled even if the benchmark fails, so the session is not left
+        # without its query cache.
+        if disable_query_cache:
+            query_func(get_enable_query_cache_sql())
 
 
 @pytest.fixture

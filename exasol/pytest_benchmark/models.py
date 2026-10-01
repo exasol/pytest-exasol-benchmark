@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from pathlib import (
     Path,
     PurePosixPath,
@@ -10,6 +12,7 @@ from pathlib import (
 )
 from typing import (
     Annotated,
+    Any,
     TypeVar,
 )
 
@@ -111,6 +114,80 @@ class ArtifactManifest(Model):
             raise ValueError(f"benchmark_file must not be named {MANIFEST_FILENAME}")
         return value
 
+    def write_to(self, directory: Path) -> None:
+        """Write this manifest as ``MANIFEST_FILENAME`` to the existing *directory*.
+
+        The manifest is written to a temporary file which then replaces
+        ``MANIFEST_FILENAME``, so readers never see a partially written one.
+        The temporary file has a unique name, so concurrent writers never write
+        to the same one, and is created exclusively rather than with
+        ``tempfile``, so the umask applies to its permissions as usual.
+        """
+        temporary = directory / f".{MANIFEST_FILENAME}.{uuid.uuid4().hex}.tmp"
+        created = False
+        try:
+            with temporary.open("x", encoding="utf-8") as file:
+                created = True
+                file.write(self.to_json() + "\n")
+            os.replace(temporary, directory / MANIFEST_FILENAME)
+        except BaseException:
+            if created:
+                temporary.unlink(missing_ok=True)
+            raise
+
+
+class BenchmarkDocument(Model):
+    """The parts of a ``pytest --benchmark-json`` document the tooling relies on.
+
+    The document has to describe the runner in ``machine_info`` and contain at
+    least one benchmark.  Each benchmark is identified by a unique, non-empty
+    ``fullname``.  All other keys are allowed and kept.  Validation errors carry
+    messages which read as a continuation of the document's file name, for
+    example ``"output.json contains no benchmarks. ..."``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # Any rather than JsonValue: the values are not validated, so validating a
+    # large or deeply nested document does not walk all of it.
+    machine_info: dict[str, Any]
+    benchmarks: list[dict[str, Any]]
+
+    @model_validator(mode="before")
+    @classmethod
+    def pytest_benchmark_structure(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            raise ValueError(
+                f"contains a JSON {type(value).__name__} instead of the object"
+                " written by pytest --benchmark-json"
+            )
+        benchmarks = value.get("benchmarks")
+        if not isinstance(benchmarks, list):
+            raise ValueError(
+                "has no 'benchmarks' list. Is it the file written by"
+                " pytest --benchmark-json?"
+            )
+        if not benchmarks:
+            raise ValueError(
+                "contains no benchmarks. Was pytest run with benchmarks disabled"
+                " or skipped, or did all benchmarks fail?"
+            )
+        fullnames: set[str] = set()
+        for index, benchmark in enumerate(benchmarks):
+            fullname = (
+                benchmark.get("fullname") if isinstance(benchmark, dict) else None
+            )
+            if not isinstance(fullname, str) or not fullname:
+                raise ValueError(f"has no 'fullname' identifying benchmark {index}")
+            if fullname in fullnames:
+                raise ValueError(f"contains benchmark {fullname!r} twice")
+            fullnames.add(fullname)
+        if not isinstance(value.get("machine_info"), dict):
+            raise ValueError(
+                "has no 'machine_info' object describing the runner platform"
+            )
+        return value
+
 
 class NormalizedCase(Model):
     """A benchmark case identified by pytest-benchmark's stable ``fullname``.
@@ -139,16 +216,23 @@ class RunnerExecution(Model):
     _validate_benchmark = field_validator("benchmark")(_json_safe)
 
     def write_to(self, directory: Path) -> None:
-        """Write this execution to a per-run artifact directory."""
+        """Write this execution to a per-run artifact directory.
+
+        The manifest is written last, so an interrupted write never leaves a
+        manifest without its benchmark file.  Unlike
+        :func:`~exasol.pytest_benchmark.artifact.package_artifact`, this method
+        overwrites existing files and does not remove what it wrote if it
+        fails, so a failed write may leave the benchmark file behind.  It also
+        serializes the benchmark document again rather than copying the bytes
+        written by pytest-benchmark.
+        """
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / MANIFEST_FILENAME).write_text(
-            self.manifest.to_json() + "\n", encoding="utf-8"
-        )
         (directory / self.manifest.benchmark_file).write_text(
             json.dumps(self.benchmark, indent=2, ensure_ascii=False, allow_nan=False)
             + "\n",
             encoding="utf-8",
         )
+        self.manifest.write_to(directory)
 
     @classmethod
     def read_from(cls, directory: Path) -> RunnerExecution:
@@ -245,6 +329,7 @@ class ComparisonReport(Model):
 
 __all__ = [
     "ArtifactManifest",
+    "BenchmarkDocument",
     "ComparisonReport",
     "ComparisonResult",
     "JsonValue",

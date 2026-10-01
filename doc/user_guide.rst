@@ -328,7 +328,26 @@ the resulting JSON file.
     Packages the JSON of one pytest run as a portable runner artifact.  The
     options ``--benchmark-json``, ``--test-set-id``, ``--comparison-target``,
     ``--runner-execution-id``, ``--source-revision``, and ``--output-dir`` are
-    required.
+    required.  The output directory receives ``manifest.json`` and
+    ``benchmark.json``, a byte-identical copy of the pytest-benchmark JSON.
+    The manifest holds the given IDs and the runner platform, which is taken
+    from the ``machine_info`` of the JSON (``system``, ``machine``, and
+    ``python_version``).  The output directory is created if missing and has
+    to be empty otherwise.  The input is validated before anything is written.
+    A failed write leaves nothing behind, and as ``manifest.json`` is written
+    last, an interrupted one never leaves an artifact that looks complete.  Malformed JSON, JSON without benchmarks, and an
+    invalid ``machine_info`` are rejected with an error naming the problem.
+
+    .. code-block:: shell
+
+        pytest --benchmark-json=output.json
+        pytest-exasol-benchmark package \
+            --benchmark-json output.json \
+            --test-set-id tpch-sf10 \
+            --comparison-target onprem-standard \
+            --runner-execution-id run-1 \
+            --source-revision "$(git rev-parse --short HEAD)" \
+            --output-dir artifact
 
 ``compare``
     Compares the runner artifacts in a directory with the benchmark history of
@@ -340,7 +359,7 @@ the resulting JSON file.
     Stores the runner artifacts in a directory as the benchmark history below
     ``--history-root``.
 
-The command set is not complete yet: the commands validate their arguments,
-but otherwise fail with a "not implemented" error.  ``pytest-exasol-benchmark
+The command set is not complete yet: ``compare`` and ``store`` validate their
+arguments, but otherwise fail with a "not implemented" error.  ``pytest-exasol-benchmark
 --help`` and ``pytest-exasol-benchmark <command> --help`` describe the
 available options.

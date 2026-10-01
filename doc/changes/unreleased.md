@@ -5,8 +5,8 @@
 Added versioned public models for benchmark artifacts, the Git-trackable
 benchmark-history layout, and comparison reports, data producer helpers which
 execute the generated benchmark-data SQL, an inspector for the size of an
-existing table, and the `pytest-exasol-benchmark` executable with skeletons of its
-`package`, `compare`, and `store` commands.
+existing table, and the `pytest-exasol-benchmark` executable with its `package`
+command and skeletons of its `compare` and `store` commands.
 
 ## Features
 
@@ -17,9 +17,11 @@ existing table, and the `pytest-exasol-benchmark` executable with skeletons of i
   table
 * #13: Added the `pytest-exasol-benchmark` executable with the command skeletons
   `package`, `compare`, and `store`, which validate their arguments
+* #14: Implemented the `package` command
 
 ## Bugfixes
 
+* #14: Fixed the query cache staying disabled after a failing benchmark
 * #11: Fixed `linear_row_sql_data_generator` generating `INSERT` statements without
   a target table
 * #11: Fixed inconsistent identifier quoting in the SQL generators.  Schema and table

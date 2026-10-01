@@ -1,3 +1,4 @@
+import json
 from importlib.metadata import entry_points
 
 import pytest
@@ -19,7 +20,15 @@ def run(tmp_path, monkeypatch):
 @pytest.fixture
 def benchmark_json(tmp_path):
     path = tmp_path / "benchmark.json"
-    path.write_text("{}")
+    path.write_text(
+        json.dumps(
+            {
+                "machine_info": {"system": "Linux", "machine": "x86_64"},
+                "benchmarks": [{"fullname": "test/bench.py::test_select"}],
+            },
+            indent=4,
+        )
+    )
     return path
 
 
@@ -147,10 +156,46 @@ def test_rejects_empty_history_root(run, artifacts_dir, command):
     assert "Invalid value for '--history-root': must not be empty" in result.output
 
 
-def test_package_is_not_implemented(run, package_args):
+def test_package_writes_artifact(run, package_args, benchmark_json, tmp_path):
+    result = run("package", *as_args(package_args))
+    assert result.exit_code == 0, result.output
+    assert f"Packaged runner artifact to {tmp_path / 'out'}" in result.output
+    assert (tmp_path / "out" / "manifest.json").is_file()
+    assert (tmp_path / "out" / "benchmark.json").read_bytes() == (
+        benchmark_json.read_bytes()
+    )
+
+
+def test_package_reports_malformed_json(run, package_args, benchmark_json):
+    benchmark_json.write_text('{"benchmarks": [')
     result = run("package", *as_args(package_args))
     assert result.exit_code == 1
-    assert "package is not implemented yet" in result.output
+    assert "Error:" in result.output
+    assert "is not valid JSON" in result.output
+
+
+def test_package_rejects_empty_output_dir(run, package_args):
+    package_args["--output-dir"] = ""
+    result = run("package", *as_args(package_args))
+    assert result.exit_code == 2
+    assert "Invalid value for '--output-dir': must not be empty" in result.output
+
+
+def test_package_reports_unwritable_output_dir(run, package_args, tmp_path):
+    (tmp_path / "file").write_text("")
+    package_args["--output-dir"] = str(tmp_path / "file" / "out")
+    result = run("package", *as_args(package_args))
+    assert result.exit_code == 1
+    assert "Error: cannot write the artifact to" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_package_refuses_non_empty_output_dir(run, package_args, tmp_path):
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "other.txt").write_text("keep")
+    result = run("package", *as_args(package_args))
+    assert result.exit_code == 1
+    assert "refusing to overwrite" in result.output
 
 
 def test_compare_is_not_implemented(run, artifacts_dir):
