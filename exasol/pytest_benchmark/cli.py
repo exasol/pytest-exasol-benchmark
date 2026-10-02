@@ -18,12 +18,12 @@ from .artifact import (
     ArtifactError,
     package_artifact,
 )
+from .history import DEFAULT_HISTORY_ROOT
 from .models import (
     IDENTIFIER_RULE,
     Identifier,
 )
 
-DEFAULT_HISTORY_ROOT = "benchmark-history"
 DEFAULT_THRESHOLD_PERCENT = 10.0
 
 _IDENTIFIER = TypeAdapter(Identifier)
@@ -56,7 +56,7 @@ def _validate_directory(
 def _history_root_option(help_text: str):
     return click.option(
         "--history-root",
-        default=DEFAULT_HISTORY_ROOT,
+        default=str(DEFAULT_HISTORY_ROOT),
         show_default=True,
         type=click.Path(file_okay=False),
         callback=_validate_directory,

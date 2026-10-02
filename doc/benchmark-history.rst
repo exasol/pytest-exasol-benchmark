@@ -16,11 +16,21 @@ The public models in ``exasol.pytest_benchmark.models`` use schema version
 output.  ``attributes`` is an extensible JSON object for database versions,
 implementation identifiers, deployment details, and similar context.
 
+A *test set* is a fixed selection of benchmarks -- pytest tests with their
+parameters and data sizes -- which is always run as a whole.  Every runner
+execution of a test set yields one sample of the same benchmarks, identified
+by their pytest-benchmark ``fullname``.  A code change or a dependency update
+does not change the test set; it changes ``source_revision`` or
+``attributes``.
+
 The checked-out tree is the complete baseline for the current revision: every
 ``manifest.json``/``benchmark.json`` pair present in the working copy belongs
-to that revision's baseline, and nothing else does.  A benchmark run adds one
-directory per runner execution -- holding the manifest and the
-``benchmark.json`` of that single test run -- and commits it.
+to that revision's baseline, and nothing else does.  Storing a benchmark run
+writes one directory per runner execution -- holding the manifest and the
+``benchmark.json`` of that single test run -- and replaces the whole
+``<comparison-target>/<test-set-id>`` subtree of each stored test set, so the
+runner executions of an earlier run do not remain in the baseline.  Subtrees
+of test sets which are not part of the stored run are left untouched.
 
 If the performance behavior has changed and the new behavior is the accepted
 one, a new baseline is created by running the benchmark and committing the new
@@ -28,7 +38,14 @@ result as the new baseline.  The previous numbers are not lost: the baseline of
 an earlier revision is recovered by checking that revision out.  Git provides
 the history; loaders do not require revision directories or aggregate run
 files.  Runner identities are the tuple of test-set ID, comparison target, and
-runner-execution ID, and duplicates are rejected while loading.
+runner-execution ID, and duplicates are rejected while loading and storing.
+Entries whose names start with a dot are ignored while loading; identifiers
+never start with a dot.
+
+Keep versions, such as the database version, in ``attributes`` rather than in
+the test-set ID or the comparison target.  Then an upgrade replaces the
+baseline when its results are stored, instead of creating a second baseline
+next to the old one.
 
 Schema versions are fields in JSON documents.  Backwards-compatible public
 model additions may use the same major schema version.  Incompatible changes
@@ -141,6 +158,24 @@ copies the JSON byte for byte and derives ``platform`` from its
         source_revision="8f12ab4",
     )
     execution = validate_artifact(Path("artifact"))
+
+Packaged artifacts downloaded side by side -- one artifact per subdirectory,
+as GitHub's ``actions/download-artifact`` lays them out -- are stored as the
+history by ``store_history``.  It copies the files of each artifact byte for
+byte into the layout above:
+
+.. code-block:: python
+
+    from exasol.pytest_benchmark.history import store_history
+
+    store_history(Path("artifacts"), Path("benchmark-history"))
+
+Every artifact is validated before the history is changed.  A subdirectory
+that is not a complete artifact -- for example one without ``manifest.json``,
+without its benchmark file, or with an invalid manifest -- and two artifacts
+sharing a runner identity are rejected, all of them reported in one error.
+The same validation is available as ``collect_artifacts`` in
+``exasol.pytest_benchmark.artifact``.
 
 Reading the tree back groups the executions into one
 ``TestSetCollection`` per test set and comparison target:
