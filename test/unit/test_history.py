@@ -416,12 +416,13 @@ def test_store_rejects_symlinked_directory_leaving_history(tmp_path, history, ou
     bundle(first, "run-1")
     store_history(first, history)
     (history / "main" / "tpcds").symlink_to(outside / "tpch", target_is_directory=True)
-    before = snapshot(history), snapshot(outside)
+    before, before_outside = snapshot(history), snapshot(outside)
     second = tmp_path / "second"
     bundle(second, "run-2", test_set_id="tpcds")
     with pytest.raises(ArtifactError, match=r"tpcds is a symbolic link"):
         store_history(second, history)
-    assert (snapshot(history), snapshot(outside)) == before
+    assert snapshot(history) == before
+    assert snapshot(outside) == before_outside
 
 
 def test_load_and_store_reject_left_staging_directory(replaced, history):
@@ -446,8 +447,9 @@ def test_store_keeps_out_concurrent_load_and_store(replaced, history, monkeypatc
     def rename_concurrently(self, target):
         """Rename like `Path.rename`, running the concurrent calls before."""
         while concurrent:
+            call = concurrent.pop()
             with pytest.raises(ArtifactError, match=r"\.store exists") as error:
-                concurrent.pop()()
+                call()
             errors.append(error)
         return rename(self, target)
 
