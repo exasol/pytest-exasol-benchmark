@@ -179,13 +179,16 @@ def _regular_file(path: Path) -> bool:
         raise ArtifactError(f"cannot access {path}: {_os_message(error)}") from error
 
 
-def validate_artifact(directory: Path) -> RunnerExecution:
+def validate_artifact(
+    directory: Path, *, ignore_hidden: bool = False
+) -> RunnerExecution:
     """
     Validate the runner artifact in `directory` and return its execution.
 
     The directory has to contain exactly ``MANIFEST_FILENAME`` and the benchmark
-    file it names, both regular files rather than symbolic links.  Raises an
-    `ArtifactError` for any violation.
+    file it names, both regular files rather than symbolic links.  With
+    `ignore_hidden`, it may contain further entries whose names start with a
+    dot.  Raises an `ArtifactError` for any violation.
     """
     manifest_path = directory / MANIFEST_FILENAME
     if not _regular_file(manifest_path):
@@ -208,6 +211,8 @@ def validate_artifact(directory: Path) -> RunnerExecution:
         raise ArtifactError(f"cannot list {directory}: {_os_message(error)}") from error
     if missing := expected - entries:
         raise ArtifactError(f"{directory} is missing {', '.join(sorted(missing))}")
+    if ignore_hidden:
+        entries = {name for name in entries if name in expected or name[0] != "."}
     if unexpected := entries - expected:
         raise ArtifactError(
             f"{directory} contains unexpected entries: {', '.join(sorted(unexpected))}"

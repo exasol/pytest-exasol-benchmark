@@ -40,8 +40,10 @@ artifacts as the benchmark history.
   convert the result of any query
 * #31: Made the integration tests share a single database per test session instead
   of starting one per test
-* #15: `load_history` now ignores entries whose names start with a dot and reports
-  all duplicate runner executions at once
+* #15: `load_history` now ignores entries whose names start with a dot, reports all
+  duplicate runner executions at once, validates each execution like a packaged
+  artifact, and rejects symbolic links and the history of a running or interrupted
+  store
 
 ## Dependency Updates
 

@@ -1,5 +1,9 @@
 import json
 import os
+import subprocess
+import sys
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -315,11 +319,11 @@ def fail_renames(monkeypatch, *, staged: int, restore: bool = False) -> None:
 
     def failing_rename(self, target):
         """Rename like `Path.rename`, except for the renames meant to fail."""
-        if ".store-" in str(self) and "new" in self.parts:
+        if ".store" in self.parts and "new" in self.parts:
             moved.append(self)
             if len(moved) == staged:
                 raise OSError(28, "No space left on device", str(target))
-        if restore and ".store-" in str(self) and "old" in self.parts:
+        if restore and ".store" in self.parts and "old" in self.parts:
             raise OSError(5, "Input/output error", str(target))
         return rename(self, target)
 
@@ -350,17 +354,143 @@ def test_store_restores_history_if_replacing_fails(replaced, history, monkeypatc
 
 def test_store_keeps_staging_if_restoring_fails(replaced, history, monkeypatch):
     fail_renames(monkeypatch, staged=2, restore=True)
-    with pytest.raises(ArtifactError, match=r"nor restore it.*kept in .*\.store-"):
+    with pytest.raises(ArtifactError, match=r"nor restore it.*kept in .*\.store"):
         store_history(replaced, history)
     monkeypatch.undo()
-    (staging,) = history.glob(".store-*")
+    staging = history / ".store"
     assert (staging / "old" / "main" / "tpcds" / "run-2" / MANIFEST_FILENAME).is_file()
 
 
 def test_load_ignores_hidden_entries(artifacts, history):
     bundle(artifacts, "run-1")
     store_history(artifacts, history)
-    staged = history / ".store-leftover" / "main" / "tpch"
-    staged.parent.mkdir(parents=True)
-    (history / "main" / "tpch").rename(staged)
+    hidden = history / ".hidden" / "main" / "tpch"
+    hidden.parent.mkdir(parents=True)
+    (history / "main" / "tpch").rename(hidden)
     assert load_history(history) == []
+
+
+def test_load_ignores_hidden_entries_of_execution(artifacts, history):
+    bundle(artifacts, "run-1")
+    store_history(artifacts, history)
+    (history / "main" / "tpch" / "run-1" / ".DS_Store").write_text("")
+    assert identities(history) == {("tpch", "main", "run-1")}
+
+
+def test_load_rejects_unexpected_entry_of_execution(artifacts, history):
+    bundle(artifacts, "run-1")
+    store_history(artifacts, history)
+    (history / "main" / "tpch" / "run-1" / "extra").write_text("")
+    with pytest.raises(ArtifactError, match="unexpected entries: extra"):
+        load_history(history)
+
+
+@pytest.fixture
+def outside(tmp_path):
+    """A directory outside the history, holding a valid runner artifact."""
+    (tmp_path / "outside").mkdir()
+    bundle(tmp_path / "outside" / "tpch", "run-9")
+    return tmp_path / "outside"
+
+
+def test_load_rejects_symlinked_directory(artifacts, history, outside):
+    bundle(artifacts, "run-1")
+    store_history(artifacts, history)
+    (history / "elsewhere").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ArtifactError, match=r"elsewhere is a symbolic link"):
+        load_history(history)
+
+
+def test_load_rejects_symlinked_manifest(artifacts, history, outside):
+    bundle(artifacts, "run-1")
+    store_history(artifacts, history)
+    manifest = history / "main" / "tpch" / "run-1" / MANIFEST_FILENAME
+    manifest.unlink()
+    manifest.symlink_to(outside / "tpch" / "run-9" / MANIFEST_FILENAME)
+    with pytest.raises(ArtifactError, match=r"manifest.json is a symbolic link"):
+        load_history(history)
+
+
+def test_store_rejects_symlinked_directory_leaving_history(tmp_path, history, outside):
+    first = tmp_path / "first"
+    bundle(first, "run-1")
+    store_history(first, history)
+    (history / "main" / "tpcds").symlink_to(outside / "tpch", target_is_directory=True)
+    before = snapshot(history), snapshot(outside)
+    second = tmp_path / "second"
+    bundle(second, "run-2", test_set_id="tpcds")
+    with pytest.raises(ArtifactError, match=r"tpcds is a symbolic link"):
+        store_history(second, history)
+    assert (snapshot(history), snapshot(outside)) == before
+
+
+def test_load_and_store_reject_left_staging_directory(replaced, history):
+    (history / ".store" / "old").mkdir(parents=True)
+    before = snapshot(history)
+    with pytest.raises(ArtifactError, match=r"\.store exists.*interrupted"):
+        load_history(history)
+    with pytest.raises(ArtifactError, match=r"\.store exists.*interrupted"):
+        store_history(replaced, history)
+    assert snapshot(history) == before
+
+
+def test_store_keeps_out_concurrent_load_and_store(replaced, history, monkeypatch):
+    """A load or a second store while the first replaces subtrees is rejected."""
+    rename = Path.rename
+    concurrent: list[Callable[[], object]] = [
+        partial(load_history, history),
+        partial(store_history, replaced, history),
+    ]
+    errors = []
+
+    def rename_concurrently(self, target):
+        """Rename like `Path.rename`, running the concurrent calls before."""
+        while concurrent:
+            with pytest.raises(ArtifactError, match=r"\.store exists") as error:
+                concurrent.pop()()
+            errors.append(error)
+        return rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename_concurrently)
+    store_history(replaced, history)
+    monkeypatch.undo()
+    assert len(errors) == 2
+    assert identities(history) == {
+        ("tpch", "main", "run-3"),
+        ("tpcds", "main", "run-4"),
+    }
+
+
+# Stores the history like store_history, but is killed, without any clean-up,
+# when moving the second staged subtree in place.
+KILLED_STORE = """
+import os, sys
+from pathlib import Path
+from exasol.pytest_benchmark.history import store_history
+
+rename = Path.rename
+moved = []
+
+def killing_rename(self, target):
+    if ".store" in self.parts and "new" in self.parts:
+        moved.append(self)
+        if len(moved) == 2:
+            os._exit(9)
+    return rename(self, target)
+
+Path.rename = killing_rename
+store_history(Path(sys.argv[1]), Path(sys.argv[2]))
+"""
+
+
+def test_load_rejects_history_of_killed_store(replaced, history):
+    result = subprocess.run(
+        [sys.executable, "-c", KILLED_STORE, str(replaced), str(history)],
+        check=False,
+    )
+    assert result.returncode == 9
+    # The history is mixed now: tpch is replaced, tpcds is moved away.
+    assert (history / "main" / "tpch" / "run-3").is_dir()
+    assert not (history / "main" / "tpcds").exists()
+    with pytest.raises(ArtifactError, match=r"\.store exists.*interrupted"):
+        load_history(history)

@@ -40,7 +40,8 @@ the history; loaders do not require revision directories or aggregate run
 files.  Runner identities are the tuple of test-set ID, comparison target, and
 runner-execution ID, and duplicates are rejected while loading and storing.
 Entries whose names start with a dot are ignored while loading; identifiers
-never start with a dot.
+never start with a dot.  The tree must not contain symbolic links, so loading
+and storing never read or replace files outside it.
 
 Keep versions, such as the database version, in ``attributes`` rather than in
 the test-set ID or the comparison target.  Then an upgrade replaces the
@@ -176,6 +177,17 @@ without its benchmark file, or with an invalid manifest -- and two artifacts
 sharing a runner identity are rejected, all of them reported in one error.
 The same validation is available as ``collect_artifacts`` in
 ``exasol.pytest_benchmark.artifact``.
+
+The artifacts are first copied to the staging directory
+``benchmark-history/.store`` and then moved in place, one test set after the
+other.  Only one store may write the history at a time: while the staging
+directory exists, a second store and ``load_history`` reject the history.  A
+store which is killed while moving the test sets in place leaves the staging
+directory behind, and possibly a partially replaced history.  Restore the
+history from Git, for example with ``git restore`` and ``git clean``, and remove
+the staging directory.  Serialize the jobs which store and load the same
+checkout, for example with a GitHub Actions ``concurrency`` group: a store
+which starts and ends while the history is loaded is not detected.
 
 Reading the tree back groups the executions into one
 ``TestSetCollection`` per test set and comparison target:

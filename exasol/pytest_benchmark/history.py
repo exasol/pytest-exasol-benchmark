@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import uuid
 from collections.abc import (
     Callable,
     Iterable,
@@ -33,32 +32,52 @@ DEFAULT_HISTORY_ROOT = Path("benchmark-history")
 # A (comparison target, test set ID) pair, naming one subtree of the history.
 _SubtreeKey = tuple[str, str]
 
+# The directory below the history root a store stages its files in.  Creating
+# it is exclusive, so it also keeps a second store out, and a store killed
+# while replacing subtrees leaves it behind, which makes loading fail.
+_STAGING = ".store"
+
+
+def _walk_error(error: OSError) -> None:
+    raise ArtifactError(f"cannot list the history: {_os_message(error)}") from error
+
 
 def _manifest_paths(root: Path) -> list[Path]:
     """All manifests below *root* in path order, skipping hidden entries.
 
     Identifiers never start with a dot, so hidden entries are no part of the
-    layout.  Skipping them keeps a staging directory left behind by an
-    interrupted :func:`store_history` out of the history.
+    layout.  The history must not contain symbolic links: they could make it
+    read or replace files outside *root*.  An `ArtifactError` lists all of them.
     """
-    return [
-        path
-        for path in sorted(root.glob(f"**/{MANIFEST_FILENAME}"))
-        if not any(part.startswith(".") for part in path.relative_to(root).parts)
-    ]
+    paths = []
+    symlinks = []
+    for directory, dirnames, filenames in os.walk(root, onerror=_walk_error):
+        # Symbolic links to directories are listed, but not descended into.
+        dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        for name in dirnames + filenames:
+            if not name.startswith(".") and Path(directory, name).is_symlink():
+                symlinks.append(f"{Path(directory, name)} is a symbolic link")
+        if MANIFEST_FILENAME in filenames:
+            paths.append(Path(directory, MANIFEST_FILENAME))
+    if symlinks:
+        raise problems_error(sorted(symlinks))
+    return sorted(paths)
 
 
 def _read_executions(root: Path) -> list[RunnerExecution]:
     """Read every execution below *root* in directory-name order.
 
-    Directory names are only a storage convention; identity comes from each
-    manifest.  Two manifests sharing the full execution identity describe the
-    same runner execution twice and are rejected with both offending manifest
-    paths.
+    Each execution is validated like a packaged artifact, except that hidden
+    entries are ignored, see
+    :func:`~exasol.pytest_benchmark.artifact.validate_artifact`.  Directory
+    names are only a storage convention; identity comes from each manifest.
+    Two manifests sharing the full execution identity describe the same runner
+    execution twice and are rejected with both offending manifest paths.
     """
 
     sources = [
-        (path, RunnerExecution.read_from(path.parent)) for path in _manifest_paths(root)
+        (path, validate_artifact(path.parent, ignore_hidden=True))
+        for path in _manifest_paths(root)
     ]
     if problems := duplicate_identities((p, x.manifest) for p, x in sources):
         raise problems_error(problems)
@@ -81,20 +100,48 @@ def _collections(executions: Iterable[RunnerExecution]) -> list[TestSetCollectio
     return list(collections.values())
 
 
+def _storing_error(root: Path) -> ArtifactError:
+    staging = root / _STAGING
+    return ArtifactError(
+        f"{staging} exists: a store is writing the history in {root}, or one was"
+        " interrupted and may have left it partially replaced.  If no store is"
+        f" running, restore {root} from Git and remove {staging}"
+    )
+
+
+def _check_not_storing(root: Path) -> None:
+    """Reject *root* while a store writes it, or after one was interrupted."""
+    staging = root / _STAGING
+    if staging.exists() or staging.is_symlink():
+        raise _storing_error(root)
+
+
 def load_history(root: Path = DEFAULT_HISTORY_ROOT) -> list[TestSetCollection]:
     """Load all per-execution artifacts below *root*.
 
     This deliberately does not look for revision or aggregate-run directories.
     Missing history is represented by an empty list.  Entries whose names start
-    with a dot are ignored.
+    with a dot are ignored, except for the staging directory of
+    :func:`store_history`: while it exists, a store is running or was
+    interrupted, so the history is rejected.  A store which starts and ends
+    while the history is read is not detected.
 
     Executions sharing a test set and comparison target are grouped into one
-    :class:`TestSetCollection`; that is the expected case.
+    :class:`TestSetCollection`; that is the expected case.  Raises an
+    :class:`~exasol.pytest_benchmark.artifact.ArtifactError` if an execution is
+    invalid, if two executions share an identity, or if the history contains a
+    symbolic link.
     """
 
     if not root.exists():
         return []
-    return _collections(_read_executions(root))
+    _check_not_storing(root)
+    try:
+        executions = _read_executions(root)
+    finally:
+        # A store started while reading takes precedence over errors it caused.
+        _check_not_storing(root)
+    return _collections(executions)
 
 
 def _subtree(key: _SubtreeKey) -> Path:
@@ -244,17 +291,24 @@ def _swap(root: Path, keys: Iterable[_SubtreeKey], new: Path, old: Path) -> None
 def _write(root: Path, groups: dict[_SubtreeKey, list[ArtifactBundle]]) -> None:
     """Replace the subtrees of *groups* in *root* by their bundles.
 
-    The bundles are staged in a hidden directory below *root*, which is removed
+    The bundles are staged in `_STAGING` below *root*, which is removed
     afterwards, unless it keeps replaced subtrees which could not be restored.
-    A *root* created by this call is removed again if it fails.
+    Creating it first keeps other stores out while *root* is checked for
+    stray manifests, see `_check_no_strays`.  A *root* created by this call is
+    removed again if it fails.
     """
     created_root = not root.exists()
     root.mkdir(parents=True, exist_ok=True)
-    staging = root / f".store-{uuid.uuid4().hex}"
+    staging = root / _STAGING
     try:
-        staging.mkdir()
+        try:
+            staging.mkdir()
+        except FileExistsError as error:
+            raise _storing_error(root) from error
         keep = False
         try:
+            if not created_root:
+                _check_no_strays(root, set(groups))
             _stage(groups, staging / "new")
             _swap(root, groups, staging / "new", staging / "old")
         except _RestoreError:
@@ -269,6 +323,19 @@ def _write(root: Path, groups: dict[_SubtreeKey, list[ArtifactBundle]]) -> None:
             with suppress(OSError):
                 root.rmdir()
         raise
+
+
+def _groups(
+    bundles: Iterable[ArtifactBundle],
+) -> dict[_SubtreeKey, list[ArtifactBundle]]:
+    """Group *bundles* by the subtree they are stored in, keeping their order."""
+    groups: dict[_SubtreeKey, list[ArtifactBundle]] = {}
+    for bundle in bundles:
+        manifest = bundle.execution.manifest
+        groups.setdefault(
+            (manifest.comparison_target, manifest.test_set_id), []
+        ).append(bundle)
+    return groups
 
 
 def store_history(
@@ -286,29 +353,28 @@ def store_history(
     store do not remain in the baseline.  Earlier baselines are recovered from
     Git.  Subtrees of other collections are left untouched.
 
-    Everything is validated before anything is changed.  The collections are
-    copied to a hidden staging directory below *root* first and then moved in
+    Everything is validated before the history is changed.  The collections are
+    copied to the staging directory ``<root>/.store`` first and then moved in
     place.  If that fails, the replaced subtrees are restored.  If even that
-    fails, the error names the staging directory, which keeps them.  An
-    interrupted store may leave the staging directory behind;
-    :func:`load_history` ignores it.
+    fails, the error names the staging directory, which keeps them.
+
+    Only one store may write *root* at a time; the staging directory, created
+    before *root* is checked, keeps a second one out.  While it exists,
+    :func:`load_history` and further stores reject the history.  A killed store
+    leaves it behind, possibly with the history partially replaced; then
+    restore *root* from Git and remove the staging directory.
 
     Returns the stored collections.  Raises an
     :class:`~exasol.pytest_benchmark.artifact.ArtifactError` if an artifact is
-    invalid, if two artifacts share an identity, if a manifest of a stored
+    invalid, if two artifacts share an identity, if a store is running or was
+    interrupted, if *root* contains a symbolic link, if a manifest of a stored
     collection lies outside its subtree in *root*, if a manifest of another
     collection lies inside a replaced subtree, or if the files cannot be read
     or written.
     """
     bundles = collect_artifacts(artifacts_dir)
-    groups: dict[_SubtreeKey, list[ArtifactBundle]] = {}
-    for bundle in bundles:
-        manifest = bundle.execution.manifest
-        key = (manifest.comparison_target, manifest.test_set_id)
-        groups.setdefault(key, []).append(bundle)
+    groups = _groups(bundles)
     try:
-        if root.exists():
-            _check_no_strays(root, set(groups))
         _write(root, groups)
     except OSError as error:
         raise ArtifactError(
