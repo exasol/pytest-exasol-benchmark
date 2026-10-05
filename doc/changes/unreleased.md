@@ -42,8 +42,8 @@ artifacts as the benchmark history.
   of starting one per test
 * #15: `load_history` now ignores entries whose names start with a dot, reports all
   duplicate runner executions at once, validates each execution like a packaged
-  artifact, and rejects symbolic links and the history of a running or interrupted
-  store
+  artifact, and rejects execution directories without a manifest, symbolic links,
+  and the history of a running or interrupted store
 
 ## Dependency Updates
 

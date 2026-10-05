@@ -42,33 +42,56 @@ def _walk_error(error: OSError) -> None:
     raise ArtifactError(f"cannot list the history: {_os_message(error)}") from error
 
 
-def _manifest_paths(root: Path) -> list[Path]:
-    """All manifests below *root* in path order, skipping hidden entries.
+def _check_root(root: Path) -> None:
+    """Reject a *root* which is a symbolic link, see `_execution_dirs`."""
+    if root.is_symlink():
+        raise ArtifactError(f"{root} is a symbolic link")
 
+
+def _execution_dirs(root: Path) -> list[Path]:
+    """All execution directories below *root* in path order.
+
+    Every directory below *root* which holds files, or no directories, is an
+    execution directory, so one missing its manifest is not overlooked.
     Identifiers never start with a dot, so hidden entries are no part of the
-    layout.  The history must not contain symbolic links: they could make it
-    read or replace files outside *root*.  An `ArtifactError` lists all of them.
+    layout and are skipped.  The history must not contain symbolic links: they
+    could make it read or replace files outside *root*.  An `ArtifactError`
+    lists all of them.
     """
-    paths = []
+    directories = []
     symlinks = []
     for directory, dirnames, filenames in os.walk(root, onerror=_walk_error):
+        # A directory holding only hidden directories is no leaf either.
+        leaf = not dirnames
         # Symbolic links to directories are listed, but not descended into.
         dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        filenames = [name for name in filenames if not name.startswith(".")]
         for name in dirnames + filenames:
-            if not name.startswith(".") and Path(directory, name).is_symlink():
+            if Path(directory, name).is_symlink():
                 symlinks.append(f"{Path(directory, name)} is a symbolic link")
-        if MANIFEST_FILENAME in filenames:
-            paths.append(Path(directory, MANIFEST_FILENAME))
+        if MANIFEST_FILENAME in filenames or (
+            Path(directory) != root and (filenames or leaf)
+        ):
+            directories.append(Path(directory))
     if symlinks:
         raise problems_error(sorted(symlinks))
-    return sorted(paths)
+    return sorted(directories)
+
+
+def _manifest_paths(root: Path) -> list[Path]:
+    """The manifests of all execution directories below *root* holding one."""
+    return [
+        directory / MANIFEST_FILENAME
+        for directory in _execution_dirs(root)
+        if (directory / MANIFEST_FILENAME).is_file()
+    ]
 
 
 def _read_executions(root: Path) -> list[RunnerExecution]:
     """Read every execution below *root* in directory-name order.
 
-    Each execution is validated like a packaged artifact, except that hidden
-    entries are ignored, see
+    Each execution directory, see `_execution_dirs`, is validated like a
+    packaged artifact, except that hidden entries are ignored, see
     :func:`~exasol.pytest_benchmark.artifact.validate_artifact`.  Directory
     names are only a storage convention; identity comes from each manifest.
     Two manifests sharing the full execution identity describe the same runner
@@ -76,8 +99,11 @@ def _read_executions(root: Path) -> list[RunnerExecution]:
     """
 
     sources = [
-        (path, validate_artifact(path.parent, ignore_hidden=True))
-        for path in _manifest_paths(root)
+        (
+            directory / MANIFEST_FILENAME,
+            validate_artifact(directory, ignore_hidden=True),
+        )
+        for directory in _execution_dirs(root)
     ]
     if problems := duplicate_identities((p, x.manifest) for p, x in sources):
         raise problems_error(problems)
@@ -129,10 +155,11 @@ def load_history(root: Path = DEFAULT_HISTORY_ROOT) -> list[TestSetCollection]:
     Executions sharing a test set and comparison target are grouped into one
     :class:`TestSetCollection`; that is the expected case.  Raises an
     :class:`~exasol.pytest_benchmark.artifact.ArtifactError` if an execution is
-    invalid, if two executions share an identity, or if the history contains a
-    symbolic link.
+    invalid or incomplete, if two executions share an identity, or if *root* is
+    or contains a symbolic link.
     """
 
+    _check_root(root)
     if not root.exists():
         return []
     _check_not_storing(root)
@@ -297,6 +324,7 @@ def _write(root: Path, groups: dict[_SubtreeKey, list[ArtifactBundle]]) -> None:
     stray manifests, see `_check_no_strays`.  A *root* created by this call is
     removed again if it fails.
     """
+    _check_root(root)
     created_root = not root.exists()
     root.mkdir(parents=True, exist_ok=True)
     staging = root / _STAGING
@@ -367,7 +395,7 @@ def store_history(
     Returns the stored collections.  Raises an
     :class:`~exasol.pytest_benchmark.artifact.ArtifactError` if an artifact is
     invalid, if two artifacts share an identity, if a store is running or was
-    interrupted, if *root* contains a symbolic link, if a manifest of a stored
+    interrupted, if *root* is or contains a symbolic link, if a manifest of a stored
     collection lies outside its subtree in *root*, if a manifest of another
     collection lies inside a replaced subtree, or if the files cannot be read
     or written.

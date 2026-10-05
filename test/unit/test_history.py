@@ -364,9 +364,7 @@ def test_store_keeps_staging_if_restoring_fails(replaced, history, monkeypatch):
 def test_load_ignores_hidden_entries(artifacts, history):
     bundle(artifacts, "run-1")
     store_history(artifacts, history)
-    hidden = history / ".hidden" / "main" / "tpch"
-    hidden.parent.mkdir(parents=True)
-    (history / "main" / "tpch").rename(hidden)
+    (history / "main" / "tpch").rename(history / "main" / ".tpch-old")
     assert load_history(history) == []
 
 
@@ -383,6 +381,56 @@ def test_load_rejects_unexpected_entry_of_execution(artifacts, history):
     (history / "main" / "tpch" / "run-1" / "extra").write_text("")
     with pytest.raises(ArtifactError, match="unexpected entries: extra"):
         load_history(history)
+
+
+@pytest.mark.parametrize(
+    "break_history",
+    [
+        pytest.param(
+            lambda history: (history / "main" / "tpch" / "run-2").mkdir(),
+            id="empty-execution",
+        ),
+        pytest.param(
+            lambda history: (
+                history / "main" / "tpch" / "run-1" / MANIFEST_FILENAME
+            ).rename(history / "main" / "tpch" / "run-1" / ".manifest.json"),
+            id="missing-manifest",
+        ),
+        pytest.param(
+            lambda history: (history / "main" / "tpch" / "notes.txt").write_text(""),
+            id="file-in-test-set",
+        ),
+    ],
+)
+def test_load_rejects_execution_without_manifest(artifacts, history, break_history):
+    bundle(artifacts, "run-1")
+    store_history(artifacts, history)
+    break_history(history)
+    with pytest.raises(ArtifactError, match=f"contains no {MANIFEST_FILENAME} file"):
+        load_history(history)
+
+
+def test_load_rejects_symlinked_root(artifacts, history, tmp_path):
+    bundle(artifacts, "run-1")
+    store_history(artifacts, history)
+    link = tmp_path / "link"
+    link.symlink_to(history, target_is_directory=True)
+    with pytest.raises(ArtifactError, match=r"link is a symbolic link"):
+        load_history(link)
+
+
+def test_store_rejects_symlinked_root_leaving_target(tmp_path, history):
+    first = tmp_path / "first"
+    bundle(first, "run-1")
+    store_history(first, history)
+    before = snapshot(history)
+    link = tmp_path / "link"
+    link.symlink_to(history, target_is_directory=True)
+    second = tmp_path / "second"
+    bundle(second, "run-2")
+    with pytest.raises(ArtifactError, match=r"link is a symbolic link"):
+        store_history(second, link)
+    assert snapshot(history) == before
 
 
 @pytest.fixture

@@ -40,8 +40,11 @@ the history; loaders do not require revision directories or aggregate run
 files.  Runner identities are the tuple of test-set ID, comparison target, and
 runner-execution ID, and duplicates are rejected while loading and storing.
 Entries whose names start with a dot are ignored while loading; identifiers
-never start with a dot.  The tree must not contain symbolic links, so loading
-and storing never read or replace files outside it.
+never start with a dot.  Neither the history root nor anything below it may be
+a symbolic link, so loading and storing never read or replace files outside
+it.  Every directory below the root which holds files, or no directories, is
+read as a runner execution, so one missing its ``manifest.json`` is rejected
+rather than ignored.
 
 Keep versions, such as the database version, in ``attributes`` rather than in
 the test-set ID or the comparison target.  Then an upgrade replaces the
