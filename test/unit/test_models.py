@@ -49,7 +49,10 @@ def execution(execution_id="run-1", target="onprem-standard"):
             platform=PlatformMetadata(os="ubuntu-24.04", architecture="x86_64"),
             attributes={"database": {"version": "8.31.0"}},
         ),
-        benchmark={"benchmarks": [{"fullname": "test::case", "stats": {"mean": 1.2}}]},
+        benchmark={
+            "machine_info": {},
+            "benchmarks": [{"fullname": "test::case", "stats": {"mean": 1.2}}],
+        },
     )
 
 

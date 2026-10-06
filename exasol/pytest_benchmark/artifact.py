@@ -8,8 +8,12 @@ is parsed only to validate it and to derive the runner platform from its
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import (
+    Iterable,
+    Mapping,
+)
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +41,14 @@ _IDENTIFIER_ERRORS = {"string_pattern_mismatch", "string_too_short"}
 
 class ArtifactError(ValueError):
     """A runner artifact or its benchmark JSON is invalid."""
+
+
+@dataclass(frozen=True)
+class ArtifactBundle:
+    """A validated runner artifact and the directory it was read from."""
+
+    directory: Path
+    execution: RunnerExecution
 
 
 class _NonFiniteNumber(ValueError):
@@ -167,13 +179,16 @@ def _regular_file(path: Path) -> bool:
         raise ArtifactError(f"cannot access {path}: {_os_message(error)}") from error
 
 
-def validate_artifact(directory: Path) -> RunnerExecution:
+def validate_artifact(
+    directory: Path, *, ignore_hidden: bool = False
+) -> RunnerExecution:
     """
     Validate the runner artifact in `directory` and return its execution.
 
     The directory has to contain exactly ``MANIFEST_FILENAME`` and the benchmark
-    file it names, both regular files rather than symbolic links.  Raises an
-    `ArtifactError` for any violation.
+    file it names, both regular files rather than symbolic links.  With
+    `ignore_hidden`, it may contain further entries whose names start with a
+    dot.  Raises an `ArtifactError` for any violation.
     """
     manifest_path = directory / MANIFEST_FILENAME
     if not _regular_file(manifest_path):
@@ -196,6 +211,8 @@ def validate_artifact(directory: Path) -> RunnerExecution:
         raise ArtifactError(f"cannot list {directory}: {_os_message(error)}") from error
     if missing := expected - entries:
         raise ArtifactError(f"{directory} is missing {', '.join(sorted(missing))}")
+    if ignore_hidden:
+        entries = {name for name in entries if name in expected or name[0] != "."}
     if unexpected := entries - expected:
         raise ArtifactError(
             f"{directory} contains unexpected entries: {', '.join(sorted(unexpected))}"
@@ -206,6 +223,88 @@ def validate_artifact(directory: Path) -> RunnerExecution:
 
     benchmark = _parse_benchmark(_read_bytes(benchmark_path), benchmark_path)
     return _execution(manifest, benchmark)
+
+
+def describe_identity(manifest: ArtifactManifest) -> str:
+    """Name the runner execution identity of `manifest` for error messages."""
+    return (
+        f"test set {manifest.test_set_id!r}, comparison target"
+        f" {manifest.comparison_target!r}, runner execution"
+        f" {manifest.runner_execution_id!r}"
+    )
+
+
+def duplicate_identities(sources: Iterable[tuple[Path, ArtifactManifest]]) -> list[str]:
+    """
+    Describe every runner execution identity occurring more than once.
+
+    `sources` pairs each manifest with the path it was read from.  Each
+    description names the identity and the paths of the first and the
+    duplicate occurrence.
+    """
+    first: dict[tuple[str, str, str], Path] = {}
+    problems = []
+    for path, manifest in sources:
+        if (seen := first.setdefault(manifest.identity, path)) != path:
+            problems.append(
+                f"duplicate runner execution ({describe_identity(manifest)})"
+                f" in {path} and {seen}"
+            )
+    return problems
+
+
+def problems_error(problems: list[str]) -> ArtifactError:
+    """Report all `problems` in one error, one problem per line."""
+    return ArtifactError("\n".join(problems))
+
+
+def _directory(path: Path) -> bool:
+    """Whether `path` is a directory rather than a symbolic link to one."""
+    try:
+        return path.is_dir() and not path.is_symlink()
+    except OSError as error:
+        raise ArtifactError(f"cannot access {path}: {_os_message(error)}") from error
+
+
+def collect_artifacts(artifacts_dir: Path) -> list[ArtifactBundle]:
+    """
+    Validate all runner artifacts in `artifacts_dir` and return them.
+
+    Every entry of `artifacts_dir` has to be a directory holding one runner
+    artifact, as validated by `validate_artifact`.  This is the layout of
+    artifacts downloaded side by side, for example by GitHub's
+    ``actions/download-artifact``.  No two artifacts may share a runner
+    execution identity.  The artifacts are returned in directory-name order.
+
+    Every artifact is validated before anything is reported: the `ArtifactError`
+    raised lists every invalid artifact and every duplicate identity, one per
+    line.  It is also raised if `artifacts_dir` contains no artifact.
+    """
+    try:
+        entries = sorted(artifacts_dir.iterdir())
+    except OSError as error:
+        raise ArtifactError(
+            f"cannot list {artifacts_dir}: {_os_message(error)}"
+        ) from error
+    if not entries:
+        raise ArtifactError(f"{artifacts_dir} contains no runner artifacts")
+    problems = []
+    bundles = []
+    for entry in entries:
+        try:
+            if not _directory(entry):
+                raise ArtifactError(
+                    f"{entry} is not a directory holding a runner artifact"
+                )
+            bundles.append(ArtifactBundle(entry, validate_artifact(entry)))
+        except ArtifactError as error:
+            problems.append(str(error))
+    problems.extend(
+        duplicate_identities((b.directory, b.execution.manifest) for b in bundles)
+    )
+    if problems:
+        raise problems_error(problems)
+    return bundles
 
 
 def _write(
@@ -297,4 +396,10 @@ def package_artifact(  # pylint: disable=too-many-arguments
     return _execution(manifest, document)
 
 
-__all__ = ["ArtifactError", "package_artifact", "validate_artifact"]
+__all__ = [
+    "ArtifactBundle",
+    "ArtifactError",
+    "collect_artifacts",
+    "package_artifact",
+    "validate_artifact",
+]

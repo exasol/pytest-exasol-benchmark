@@ -100,6 +100,11 @@ class ArtifactManifest(Model):
 
     _validate_attributes = field_validator("attributes")(_json_safe)
 
+    @property
+    def identity(self) -> tuple[str, str, str]:
+        """The test set, comparison target, and runner execution ID."""
+        return (self.test_set_id, self.comparison_target, self.runner_execution_id)
+
     @field_validator("benchmark_file")
     @classmethod
     def safe_benchmark_file(cls, value: str) -> str:
@@ -262,14 +267,7 @@ class TestSetCollection(Model):
 
     @model_validator(mode="after")
     def unique_executions(self) -> TestSetCollection:
-        identities = [
-            (
-                x.manifest.test_set_id,
-                x.manifest.comparison_target,
-                x.manifest.runner_execution_id,
-            )
-            for x in self.executions
-        ]
+        identities = [x.manifest.identity for x in self.executions]
         if len(identities) != len(set(identities)):
             raise ValueError("duplicate runner-execution identity")
         for execution in self.executions:
