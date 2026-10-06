@@ -6,8 +6,9 @@ Added versioned public models for benchmark artifacts, the Git-trackable
 benchmark-history layout, and comparison reports, data producer helpers which
 execute the generated benchmark-data SQL, an inspector for the size of an
 existing table, the `pytest-exasol-benchmark` executable with its `package`
-command and skeletons of its `compare` and `store` commands, and storing runner
-artifacts as the benchmark history.
+command and skeletons of its `compare` and `store` commands, storing runner
+artifacts as the benchmark history, and normalizing pytest-benchmark JSON for
+comparisons.
 
 ## Features
 
@@ -20,6 +21,8 @@ artifacts as the benchmark history.
   `package`, `compare`, and `store`, which validate their arguments
 * #14: Implemented the `package` command
 * #15: Added `store_history`, which stores runner artifacts as the benchmark history
+* #16: Added `normalize_execution` and `normalize_benchmark`, which normalize
+  pytest-benchmark JSON into cases keyed by `fullname`
 
 ## Bugfixes
 
