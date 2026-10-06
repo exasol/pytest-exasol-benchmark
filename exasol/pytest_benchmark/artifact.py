@@ -101,6 +101,19 @@ def _read_bytes(path: Path) -> bytes:
         raise ArtifactError(f"cannot read {path}: {_os_message(error)}") from error
 
 
+def validate_benchmark_document(document: Any, source: str | Path) -> None:
+    """
+    Validate the structure of the parsed pytest-benchmark JSON `document`.
+
+    Raises an `ArtifactError` naming `source` if `document` is not structured
+    like the output of ``pytest --benchmark-json``, see `BenchmarkDocument`.
+    """
+    try:
+        BenchmarkDocument.model_validate(document)
+    except ValidationError as error:
+        raise ArtifactError(f"{source} {_describe(error)}") from error
+
+
 def _parse_benchmark(raw: bytes, source: Path) -> dict[str, Any]:
     """
     Parse and validate the pytest-benchmark JSON `raw` read from `source`.
@@ -132,10 +145,7 @@ def _parse_benchmark(raw: bytes, source: Path) -> dict[str, Any]:
         ) from error
     except ValueError as error:
         raise ArtifactError(f"{source} is not valid JSON: {error}") from error
-    try:
-        BenchmarkDocument.model_validate(document)
-    except ValidationError as error:
-        raise ArtifactError(f"{source} {_describe(error)}") from error
+    validate_benchmark_document(document, source)
     return document
 
 

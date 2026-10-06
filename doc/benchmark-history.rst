@@ -211,13 +211,56 @@ A ``NormalizedCase`` gives a case a stable identity and a compact, comparable
 data payload::
 
     NormalizedCase(
-        fullname="tests.test_queries::test_select",
-        data={"mean": 1.23, "rounds": 10},
+        fullname="tests/test_queries.py::test_select[10]",
+        data={
+            "median": 0.0012,
+            "min": 0.0011,
+            "max": 0.0019,
+            "mean": 0.0013,
+            "rounds": 10,
+        },
     )
 
 The ``fullname`` is the pytest-benchmark case identity.  It must be unique
 within a test-set collection.  Normalization is an in-memory comparison
 concern; it does not change the raw ``benchmark.json`` artifact.
+
+``normalize_execution`` in ``exasol.pytest_benchmark.normalization`` turns the
+benchmark document of one runner execution into one ``NormalizedCase`` per
+benchmark, keyed by ``fullname`` in document order.  Read the document with
+``validate_artifact`` or ``load_history`` rather than ``json.load``: they
+reject files which are empty, not UTF-8 encoded, or contain numbers which are
+not finite.  ``normalize_benchmark`` does the same for a parsed
+``pytest --benchmark-json`` document, naming its source in error messages.
+
+.. code-block:: python
+
+    from pathlib import Path
+
+    from exasol.pytest_benchmark.artifact import validate_artifact
+    from exasol.pytest_benchmark.normalization import normalize_execution
+
+    cases = normalize_execution(validate_artifact(Path("artifact")))
+    median = cases["tests/test_queries.py::test_select[10]"].data["median"]
+
+A case retains the ``median``, ``min``, ``max``, and ``mean`` of the round
+timings, in seconds, and the number of ``rounds`` from the benchmark's
+``stats``; all other values of the document are dropped.  Each of them is
+required: the timings have to be finite non-negative numbers, with the median
+and the mean between the minimum and the maximum, and ``rounds`` has to be a
+positive whole number.
+
+A document which is not structured as described by ``BenchmarkDocument`` --
+for example one without benchmarks or with a ``fullname`` twice -- is
+rejected first, with an ``ArtifactError`` describing its structure.  Only the
+statistics of a well-structured document are checked: every benchmark missing
+a retained statistic or holding an invalid or inconsistent one is reported in
+one ``ArtifactError``, one per line.
+
+Normalization works on one runner execution.  The executions of a test set
+sample the same benchmarks, so the comparison aggregates their cases, for
+example by their median, rather than adding each execution's cases to the
+``TestSetCollection``.
 
 A ``ComparisonResult`` records the values for one case on both sides of a
 comparison::
