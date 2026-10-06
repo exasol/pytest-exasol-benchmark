@@ -412,4 +412,5 @@ __all__ = [
     "collect_artifacts",
     "package_artifact",
     "validate_artifact",
+    "validate_benchmark_document",
 ]

@@ -24,22 +24,23 @@ from .models import (
 
 def _timing_problem(value: Any) -> str | None:
     """Why `value` is no valid timing in seconds, or ``None`` if it is one."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return "which is not a finite non-negative number"
     try:
-        finite = math.isfinite(value)
+        valid = (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(value)
+            and value >= 0
+        )
     except OverflowError:
         # An integer too large for a float.
-        finite = False
-    if not finite or value < 0:
-        return "which is not a finite non-negative number"
-    return None
+        valid = False
+    return None if valid else "not a finite non-negative number"
 
 
 def _rounds_problem(value: Any) -> str | None:
     """Why `value` is no valid number of rounds, or ``None`` if it is one."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        return "which is not a positive whole number"
+        return "not a positive whole number"
     return None
 
 
@@ -101,7 +102,7 @@ def _statistics(
         if problem := check(value):
             problems.append(
                 f"{source} has 'stats.{name}' {value!r} for benchmark"
-                f" {fullname!r}, {problem}"
+                f" {fullname!r}, which is {problem}"
             )
         else:
             statistics[name] = value
@@ -154,3 +155,6 @@ def normalize_execution(execution: RunnerExecution) -> dict[str, NormalizedCase]
         f" ({describe_identity(execution.manifest)})"
     )
     return normalize_benchmark(execution.benchmark, source)
+
+
+__all__ = ["RETAINED_STATISTICS", "normalize_benchmark", "normalize_execution"]

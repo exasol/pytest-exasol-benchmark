@@ -14,21 +14,9 @@ from exasol.pytest_benchmark.normalization import (
     normalize_execution,
 )
 
-# Written by pytest-benchmark 5.3.0 for test/test_bench.py, whose source is
-#
-#     @pytest.mark.parametrize("size", [10, 100])
-#     def test_sum(benchmark, size):
-#         benchmark(sum, range(size))
-#
-#     def test_sorted(benchmark):
-#         benchmark.extra_info["rows"] = 50
-#         benchmark.pedantic(
-#             sorted, args=(list(range(50, 0, -1)),), rounds=5, iterations=2
-#         )
-#
-# run with "pytest -p no:exasol_benchmark test --benchmark-json=benchmark.json
-# --benchmark-max-time=0.00001 --benchmark-min-rounds=5".  Only
-# machine_info.node was anonymized, and a final newline was added.
+# Real output of pytest --benchmark-json (pytest-benchmark 5.3.0) for two
+# parametrized cases and a pedantic one with extra_info.  Only
+# machine_info.node was anonymized.
 FIXTURE = Path(__file__).parent / "resources" / "benchmark.json"
 SOURCE = "output.json"
 MISSING = object()
