@@ -17,6 +17,7 @@ from .artifact import (
     collect_artifacts,
     describe_identity,
     duplicate_identities,
+    group_executions,
     problems_error,
     validate_artifact,
 )
@@ -110,22 +111,6 @@ def _read_executions(root: Path) -> list[RunnerExecution]:
     return [execution for _, execution in sources]
 
 
-def _collections(executions: Iterable[RunnerExecution]) -> list[TestSetCollection]:
-    """Group *executions* into one collection per test set and comparison target.
-
-    The collections and their executions keep the order of *executions*.
-    """
-    collections: dict[tuple[str, str], TestSetCollection] = {}
-    for execution in executions:
-        key = (execution.manifest.test_set_id, execution.manifest.comparison_target)
-        collection = collections.setdefault(
-            key,
-            TestSetCollection(test_set_id=key[0], comparison_target=key[1]),
-        )
-        collection.add(execution)
-    return list(collections.values())
-
-
 def _storing_error(root: Path) -> ArtifactError:
     staging = root / _STAGING
     return ArtifactError(
@@ -168,7 +153,7 @@ def load_history(root: Path = DEFAULT_HISTORY_ROOT) -> list[TestSetCollection]:
     finally:
         # A store started while reading takes precedence over errors it caused.
         _check_not_storing(root)
-    return _collections(executions)
+    return group_executions(executions)
 
 
 def _subtree(key: _SubtreeKey) -> Path:
@@ -408,7 +393,7 @@ def store_history(
         raise ArtifactError(
             f"cannot store the history in {root}: {_os_message(error)}"
         ) from error
-    return _collections(bundle.execution for bundle in bundles)
+    return group_executions(bundle.execution for bundle in bundles)
 
 
 __all__ = ["load_history", "store_history"]

@@ -1,4 +1,3 @@
-import json
 import os
 import subprocess
 import sys
@@ -11,7 +10,6 @@ import pytest
 from exasol.pytest_benchmark.artifact import (
     ArtifactError,
     collect_artifacts,
-    package_artifact,
 )
 from exasol.pytest_benchmark.history import (
     load_history,
@@ -20,60 +18,10 @@ from exasol.pytest_benchmark.history import (
 from exasol.pytest_benchmark.models import MANIFEST_FILENAME
 
 
-def benchmark_json(fullname: str = "test/bench.py::test_select") -> bytes:
-    """A pytest-benchmark JSON document holding the single benchmark *fullname*."""
-    # Indented and unsorted like pytest-benchmark's output, so a re-serialization
-    # would show up as a byte difference.
-    document = {
-        "machine_info": {
-            "system": "Linux",
-            "machine": "x86_64",
-            "python_version": "3.11.9",
-        },
-        "benchmarks": [
-            {"fullname": fullname, "stats": {"mean": 1.0000000000000002e-05}}
-        ],
-        "version": "5.2.3",
-    }
-    return json.dumps(document, indent=4).encode()
-
-
-@pytest.fixture
-def artifacts(tmp_path):
-    """The directory runner artifacts are downloaded to, not created yet."""
-    return tmp_path / "artifacts"
-
-
 @pytest.fixture
 def history(tmp_path):
     """The root of the benchmark history, not created yet."""
     return tmp_path / "benchmark-history"
-
-
-def bundle(
-    artifacts: Path,
-    name: str,
-    *,
-    test_set_id: str = "tpch",
-    comparison_target: str = "main",
-    runner_execution_id: str | None = None,
-    fullname: str = "test/bench.py::test_select",
-) -> Path:
-    """Package a runner artifact as the subdirectory *name* of *artifacts*.
-
-    The runner execution ID defaults to *name*.  Returns the artifact directory.
-    """
-    source = artifacts.parent / f"{name}.json"
-    source.write_bytes(benchmark_json(fullname))
-    package_artifact(
-        source,
-        artifacts / name,
-        test_set_id=test_set_id,
-        comparison_target=comparison_target,
-        runner_execution_id=runner_execution_id or name,
-        source_revision="d66cb7d",
-    )
-    return artifacts / name
 
 
 def snapshot(root: Path) -> dict[str, bytes | None]:
@@ -93,9 +41,9 @@ def identities(root: Path) -> set[tuple[str, str, str]]:
     }
 
 
-def test_collect_returns_bundles_in_directory_order(artifacts):
-    bundle(artifacts, "run-2")
-    bundle(artifacts, "run-1")
+def test_collect_returns_bundles_in_directory_order(artifacts, make_bundle):
+    make_bundle(artifacts, "run-2")
+    make_bundle(artifacts, "run-1")
     assert [b.directory.name for b in collect_artifacts(artifacts)] == [
         "run-1",
         "run-2",
@@ -108,18 +56,18 @@ def test_collect_rejects_empty_directory(artifacts):
         collect_artifacts(artifacts)
 
 
-def test_collect_rejects_file_entry(artifacts):
-    bundle(artifacts, "run-1")
+def test_collect_rejects_file_entry(artifacts, make_bundle):
+    make_bundle(artifacts, "run-1")
     (artifacts / "README").write_text("")
     with pytest.raises(ArtifactError, match="README is not a directory"):
         collect_artifacts(artifacts)
 
 
-def test_collect_reports_all_problems(artifacts):
-    bundle(artifacts, "run-1")
-    bundle(artifacts, "copy", runner_execution_id="run-1")
+def test_collect_reports_all_problems(artifacts, make_bundle):
+    make_bundle(artifacts, "run-1")
+    make_bundle(artifacts, "copy", runner_execution_id="run-1")
     (artifacts / "empty").mkdir()
-    (bundle(artifacts, "broken") / "benchmark.json").unlink()
+    (make_bundle(artifacts, "broken") / "benchmark.json").unlink()
     with pytest.raises(ArtifactError) as error:
         collect_artifacts(artifacts)
     lines = str(error.value).splitlines()
@@ -132,11 +80,51 @@ def test_collect_reports_all_problems(artifacts):
     assert lines[2].endswith("copy")
 
 
-def test_store_round_trips_test_sets_targets_and_runners(artifacts, history):
+def test_collect_ignores_hidden_entries(artifacts, make_bundle):
+    (make_bundle(artifacts, "run-1") / ".DS_Store").write_text("")
+    (artifacts / ".DS_Store").write_text("")
+    (artifacts / ".cache").mkdir()
+    assert [b.directory.name for b in collect_artifacts(artifacts)] == ["run-1"]
+
+
+def test_collect_rejects_only_hidden_entries(artifacts):
+    artifacts.mkdir()
+    (artifacts / ".DS_Store").write_text("")
+    with pytest.raises(ArtifactError, match="contains no runner artifacts"):
+        collect_artifacts(artifacts)
+
+
+def test_collect_rejects_symlinked_artifact(artifacts, tmp_path, make_bundle):
+    make_bundle(artifacts, "run-1")
+    target = make_bundle(tmp_path / "elsewhere", "run-2")
+    (artifacts / "run-2").symlink_to(target, target_is_directory=True)
+    with pytest.raises(ArtifactError) as error:
+        collect_artifacts(artifacts)
+    assert str(error.value).endswith(
+        "run-2 is a symbolic link, not a runner artifact directory"
+    )
+
+
+def test_collect_explains_flat_layout(artifacts, tmp_path, make_bundle):
+    # Downloading a single artifact by name puts its files into the directory.
+    make_bundle(tmp_path, "artifacts")
+    with pytest.raises(ArtifactError) as error:
+        collect_artifacts(artifacts)
+    lines = str(error.value).splitlines()
+    assert len(lines) == 3
+    assert "one runner artifact per subdirectory" in lines[0]
+    assert "without 'name' and without 'merge-multiple'" in lines[0]
+    assert "benchmark.json is not a directory" in lines[1]
+    assert f"{MANIFEST_FILENAME} is not a directory" in lines[2]
+
+
+def test_store_round_trips_test_sets_targets_and_runners(
+    artifacts, history, make_bundle
+):
     for target in ("main", "saas"):
         for test_set in ("tpch", "tpcds"):
             for runner in ("run-1", "run-2"):
-                bundle(
+                make_bundle(
                     artifacts,
                     f"{target}-{test_set}-{runner}",
                     test_set_id=test_set,
@@ -160,8 +148,8 @@ def test_store_round_trips_test_sets_targets_and_runners(artifacts, history):
             )
 
 
-def test_store_copies_bytes_into_layout(artifacts, history):
-    source = bundle(artifacts, "artifact-1", runner_execution_id="run-1")
+def test_store_copies_bytes_into_layout(artifacts, history, make_bundle):
+    source = make_bundle(artifacts, "artifact-1", runner_execution_id="run-1")
     store_history(artifacts, history)
     assert snapshot(history) == {
         "main": None,
@@ -174,9 +162,9 @@ def test_store_copies_bytes_into_layout(artifacts, history):
     }
 
 
-def test_store_returns_stored_collections(artifacts, history):
-    bundle(artifacts, "run-1")
-    bundle(artifacts, "run-2", test_set_id="tpcds")
+def test_store_returns_stored_collections(artifacts, history, make_bundle):
+    make_bundle(artifacts, "run-1")
+    make_bundle(artifacts, "run-2", test_set_id="tpcds")
     collections = store_history(artifacts, history)
     assert sorted(
         (c.test_set_id, [x.manifest.runner_execution_id for x in c.executions])
@@ -184,25 +172,25 @@ def test_store_returns_stored_collections(artifacts, history):
     ) == [("tpcds", ["run-2"]), ("tpch", ["run-1"])]
 
 
-def test_store_replaces_subtree_of_stored_collection(tmp_path, history):
+def test_store_replaces_subtree_of_stored_collection(tmp_path, history, make_bundle):
     first = tmp_path / "first"
-    bundle(first, "run-1")
-    bundle(first, "run-2")
+    make_bundle(first, "run-1")
+    make_bundle(first, "run-2")
     store_history(first, history)
     second = tmp_path / "second"
-    bundle(second, "run-3")
+    make_bundle(second, "run-3")
     store_history(second, history)
     assert identities(history) == {("tpch", "main", "run-3")}
 
 
-def test_store_keeps_other_collections(tmp_path, history):
+def test_store_keeps_other_collections(tmp_path, history, make_bundle):
     first = tmp_path / "first"
-    bundle(first, "run-1", test_set_id="tpcds")
-    bundle(first, "run-2", comparison_target="saas")
-    bundle(first, "run-3")
+    make_bundle(first, "run-1", test_set_id="tpcds")
+    make_bundle(first, "run-2", comparison_target="saas")
+    make_bundle(first, "run-3")
     store_history(first, history)
     second = tmp_path / "second"
-    bundle(second, "run-4")
+    make_bundle(second, "run-4")
     store_history(second, history)
     assert identities(history) == {
         ("tpcds", "main", "run-1"),
@@ -211,8 +199,21 @@ def test_store_keeps_other_collections(tmp_path, history):
     }
 
 
-def test_store_leaves_no_staging_directory(artifacts, history):
-    bundle(artifacts, "run-1")
+def test_store_does_not_copy_hidden_entries(artifacts, history, make_bundle):
+    (make_bundle(artifacts, "run-1") / ".DS_Store").write_text("")
+    (artifacts / ".DS_Store").write_text("")
+    store_history(artifacts, history)
+    assert sorted(snapshot(history)) == [
+        "main",
+        "main/tpch",
+        "main/tpch/run-1",
+        "main/tpch/run-1/benchmark.json",
+        f"main/tpch/run-1/{MANIFEST_FILENAME}",
+    ]
+
+
+def test_store_leaves_no_staging_directory(artifacts, history, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     store_history(artifacts, history)
     assert [path.name for path in history.iterdir()] == ["main"]
@@ -231,23 +232,23 @@ def test_store_leaves_no_staging_directory(artifacts, history):
     ],
 )
 def test_store_rejects_incomplete_bundle_leaving_history(
-    tmp_path, history, break_bundle
+    make_bundle, tmp_path, history, break_bundle
 ):
     first = tmp_path / "first"
-    bundle(first, "run-1")
+    make_bundle(first, "run-1")
     store_history(first, history)
     before = snapshot(history)
     second = tmp_path / "second"
-    bundle(second, "run-2")
-    break_bundle(bundle(second, "run-3"))
+    make_bundle(second, "run-2")
+    break_bundle(make_bundle(second, "run-3"))
     with pytest.raises(ArtifactError, match="run-3"):
         store_history(second, history)
     assert snapshot(history) == before
 
 
-def test_store_rejects_duplicate_identity(artifacts, history):
-    bundle(artifacts, "run-1")
-    bundle(artifacts, "copy", runner_execution_id="run-1")
+def test_store_rejects_duplicate_identity(artifacts, history, make_bundle):
+    make_bundle(artifacts, "run-1")
+    make_bundle(artifacts, "copy", runner_execution_id="run-1")
     with pytest.raises(ArtifactError, match=r"duplicate runner execution .*copy"):
         store_history(artifacts, history)
     assert not history.exists()
@@ -260,43 +261,45 @@ def test_store_rejects_empty_artifacts_dir(artifacts, history):
     assert not history.exists()
 
 
-def test_store_rejects_manifest_outside_its_subtree(tmp_path, history):
+def test_store_rejects_manifest_outside_its_subtree(tmp_path, history, make_bundle):
     first = tmp_path / "first"
-    bundle(first, "run-1")
+    make_bundle(first, "run-1")
     store_history(first, history)
     (history / "main" / "tpch").rename(history / "main" / "moved")
     before = snapshot(history)
     second = tmp_path / "second"
-    bundle(second, "run-2")
+    make_bundle(second, "run-2")
     with pytest.raises(ArtifactError, match="moved.*is outside"):
         store_history(second, history)
     assert snapshot(history) == before
 
 
-def test_store_rejects_other_collection_inside_replaced_subtree(tmp_path, history):
+def test_store_rejects_other_collection_inside_replaced_subtree(
+    tmp_path, history, make_bundle
+):
     first = tmp_path / "first"
-    bundle(first, "run-1")
+    make_bundle(first, "run-1")
     store_history(first, history)
     other = tmp_path / "other"
-    bundle(other, "run-2", test_set_id="tpcds")
+    make_bundle(other, "run-2", test_set_id="tpcds")
     (other / "run-2").rename(history / "main" / "tpch" / "run-2")
     before = snapshot(history)
     second = tmp_path / "second"
-    bundle(second, "run-3")
+    make_bundle(second, "run-3")
     with pytest.raises(ArtifactError, match=r"run-2.*'tpcds'.*is inside.*delete it"):
         store_history(second, history)
     assert snapshot(history) == before
 
 
 def test_store_rejects_collection_differing_only_in_case(
-    tmp_path, history, monkeypatch
+    make_bundle, tmp_path, history, monkeypatch
 ):
     first = tmp_path / "first"
-    bundle(first, "run-1", comparison_target="Main")
+    make_bundle(first, "run-1", comparison_target="Main")
     store_history(first, history)
     before = snapshot(history)
     second = tmp_path / "second"
-    bundle(second, "run-2")
+    make_bundle(second, "run-2")
     # Emulates a case-insensitive file system, on which main/tpch is Main/tpch.
     monkeypatch.setattr(
         os.path,
@@ -331,15 +334,15 @@ def fail_renames(monkeypatch, *, staged: int, restore: bool = False) -> None:
 
 
 @pytest.fixture
-def replaced(tmp_path, history):
+def replaced(tmp_path, history, make_bundle):
     """Store two test sets and return a second store replacing both."""
     first = tmp_path / "first"
-    bundle(first, "run-1")
-    bundle(first, "run-2", test_set_id="tpcds")
+    make_bundle(first, "run-1")
+    make_bundle(first, "run-2", test_set_id="tpcds")
     store_history(first, history)
     second = tmp_path / "second"
-    bundle(second, "run-3")
-    bundle(second, "run-4", test_set_id="tpcds")
+    make_bundle(second, "run-3")
+    make_bundle(second, "run-4", test_set_id="tpcds")
     return second
 
 
@@ -361,22 +364,22 @@ def test_store_keeps_staging_if_restoring_fails(replaced, history, monkeypatch):
     assert (staging / "old" / "main" / "tpcds" / "run-2" / MANIFEST_FILENAME).is_file()
 
 
-def test_load_ignores_hidden_entries(artifacts, history):
-    bundle(artifacts, "run-1")
+def test_load_ignores_hidden_entries(artifacts, history, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     (history / "main" / "tpch").rename(history / "main" / ".tpch-old")
     assert load_history(history) == []
 
 
-def test_load_ignores_hidden_entries_of_execution(artifacts, history):
-    bundle(artifacts, "run-1")
+def test_load_ignores_hidden_entries_of_execution(artifacts, history, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     (history / "main" / "tpch" / "run-1" / ".DS_Store").write_text("")
     assert identities(history) == {("tpch", "main", "run-1")}
 
 
-def test_load_rejects_unexpected_entry_of_execution(artifacts, history):
-    bundle(artifacts, "run-1")
+def test_load_rejects_unexpected_entry_of_execution(artifacts, history, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     (history / "main" / "tpch" / "run-1" / "extra").write_text("")
     with pytest.raises(ArtifactError, match="unexpected entries: extra"):
@@ -402,16 +405,18 @@ def test_load_rejects_unexpected_entry_of_execution(artifacts, history):
         ),
     ],
 )
-def test_load_rejects_execution_without_manifest(artifacts, history, break_history):
-    bundle(artifacts, "run-1")
+def test_load_rejects_execution_without_manifest(
+    artifacts, history, break_history, make_bundle
+):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     break_history(history)
     with pytest.raises(ArtifactError, match=f"contains no {MANIFEST_FILENAME} file"):
         load_history(history)
 
 
-def test_load_rejects_symlinked_root(artifacts, history, tmp_path):
-    bundle(artifacts, "run-1")
+def test_load_rejects_symlinked_root(artifacts, history, tmp_path, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     link = tmp_path / "link"
     link.symlink_to(history, target_is_directory=True)
@@ -419,38 +424,38 @@ def test_load_rejects_symlinked_root(artifacts, history, tmp_path):
         load_history(link)
 
 
-def test_store_rejects_symlinked_root_leaving_target(tmp_path, history):
+def test_store_rejects_symlinked_root_leaving_target(tmp_path, history, make_bundle):
     first = tmp_path / "first"
-    bundle(first, "run-1")
+    make_bundle(first, "run-1")
     store_history(first, history)
     before = snapshot(history)
     link = tmp_path / "link"
     link.symlink_to(history, target_is_directory=True)
     second = tmp_path / "second"
-    bundle(second, "run-2")
+    make_bundle(second, "run-2")
     with pytest.raises(ArtifactError, match=r"link is a symbolic link"):
         store_history(second, link)
     assert snapshot(history) == before
 
 
 @pytest.fixture
-def outside(tmp_path):
+def outside(tmp_path, make_bundle):
     """A directory outside the history, holding a valid runner artifact."""
     (tmp_path / "outside").mkdir()
-    bundle(tmp_path / "outside" / "tpch", "run-9")
+    make_bundle(tmp_path / "outside" / "tpch", "run-9")
     return tmp_path / "outside"
 
 
-def test_load_rejects_symlinked_directory(artifacts, history, outside):
-    bundle(artifacts, "run-1")
+def test_load_rejects_symlinked_directory(artifacts, history, outside, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     (history / "elsewhere").symlink_to(outside, target_is_directory=True)
     with pytest.raises(ArtifactError, match=r"elsewhere is a symbolic link"):
         load_history(history)
 
 
-def test_load_rejects_symlinked_manifest(artifacts, history, outside):
-    bundle(artifacts, "run-1")
+def test_load_rejects_symlinked_manifest(artifacts, history, outside, make_bundle):
+    make_bundle(artifacts, "run-1")
     store_history(artifacts, history)
     manifest = history / "main" / "tpch" / "run-1" / MANIFEST_FILENAME
     manifest.unlink()
@@ -459,14 +464,16 @@ def test_load_rejects_symlinked_manifest(artifacts, history, outside):
         load_history(history)
 
 
-def test_store_rejects_symlinked_directory_leaving_history(tmp_path, history, outside):
+def test_store_rejects_symlinked_directory_leaving_history(
+    tmp_path, history, outside, make_bundle
+):
     first = tmp_path / "first"
-    bundle(first, "run-1")
+    make_bundle(first, "run-1")
     store_history(first, history)
     (history / "main" / "tpcds").symlink_to(outside / "tpch", target_is_directory=True)
     before, before_outside = snapshot(history), snapshot(outside)
     second = tmp_path / "second"
-    bundle(second, "run-2", test_set_id="tpcds")
+    make_bundle(second, "run-2", test_set_id="tpcds")
     with pytest.raises(ArtifactError, match=r"tpcds is a symbolic link"):
         store_history(second, history)
     assert snapshot(history) == before

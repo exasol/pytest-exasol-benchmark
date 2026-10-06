@@ -164,9 +164,10 @@ copies the JSON byte for byte and derives ``platform`` from its
     execution = validate_artifact(Path("artifact"))
 
 Packaged artifacts downloaded side by side -- one artifact per subdirectory,
-as GitHub's ``actions/download-artifact`` lays them out -- are stored as the
-history by ``store_history``.  It copies the files of each artifact byte for
-byte into the layout above:
+as GitHub's ``actions/download-artifact`` lays them out when it downloads all
+artifacts of a run, without ``name`` and ``merge-multiple`` -- are stored as
+the history by ``store_history``.  It copies the files of each artifact byte
+for byte into the layout above:
 
 .. code-block:: python
 
@@ -178,6 +179,8 @@ Every artifact is validated before the history is changed.  A subdirectory
 that is not a complete artifact -- for example one without ``manifest.json``,
 without its benchmark file, or with an invalid manifest -- and two artifacts
 sharing a runner identity are rejected, all of them reported in one error.
+Symbolic links are rejected as well.  Entries whose names start with a dot,
+such as ``.DS_Store`` files, are ignored.
 The same validation is available as ``collect_artifacts`` in
 ``exasol.pytest_benchmark.artifact``.
 
@@ -203,6 +206,27 @@ Reading the tree back groups the executions into one
         print(collection.test_set_id, collection.comparison_target)
         for execution in collection.executions:
             print("  ", execution.manifest.runner_execution_id)
+
+The artifacts of a benchmark run which is to be compared with the history are
+collected by ``collect_candidates`` in ``exasol.pytest_benchmark.artifact``,
+the counterpart of ``load_history``.  They are validated like the input of
+``store_history``, see ``collect_artifacts``.  Any download step works which
+puts one artifact per subdirectory; the names of the subdirectories do not
+matter, each artifact's identity comes from its manifest.  The function
+groups the runner executions into one ``TestSetCollection`` per test set and
+comparison target, keeping every test set and runner sample:
+
+.. code-block:: python
+
+    from exasol.pytest_benchmark.artifact import collect_candidates
+
+    for collection in collect_candidates(Path("artifacts")):
+        print(collection.test_set_id, len(collection.executions))
+
+Invalid and incomplete artifacts, and runner identities occurring twice, are
+reported in one error before anything is compared.  Whether the runner
+executions of a test set contain the same benchmarks is not checked here:
+matching them is part of the comparison.
 
 Normalized cases and comparison results
 ----------------------------------------

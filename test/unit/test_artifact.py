@@ -8,6 +8,7 @@ import pytest
 from exasol.pytest_benchmark import artifact
 from exasol.pytest_benchmark.artifact import (
     ArtifactError,
+    collect_candidates,
     package_artifact,
     validate_artifact,
 )
@@ -511,3 +512,97 @@ def test_package_preserves_real_pytest_benchmark_output(pytester, tmp_path):
         raw_json.read_bytes()
     )
     assert execution.manifest.platform.architecture
+
+
+def candidate_layout(collections) -> list[tuple[str, str, list[str]]]:
+    """The test set, comparison target, and runner IDs of each collection."""
+    return [
+        (
+            c.test_set_id,
+            c.comparison_target,
+            [x.manifest.runner_execution_id for x in c.executions],
+        )
+        for c in collections
+    ]
+
+
+def test_collect_candidates_keeps_all_test_sets_targets_and_runners(
+    artifacts, make_bundle
+):
+    make_bundle(artifacts, "a", test_set_id="tpch", runner_execution_id="run-1")
+    make_bundle(artifacts, "b", test_set_id="tpch", runner_execution_id="run-2")
+    make_bundle(artifacts, "c", test_set_id="tpcds", runner_execution_id="run-1")
+    make_bundle(
+        artifacts,
+        "d",
+        test_set_id="tpch",
+        comparison_target="saas",
+        runner_execution_id="run-1",
+    )
+    make_bundle(artifacts, "e", test_set_id="tpch", runner_execution_id="run-3")
+    assert candidate_layout(collect_candidates(artifacts)) == [
+        ("tpch", "main", ["run-1", "run-2", "run-3"]),
+        ("tpcds", "main", ["run-1"]),
+        ("tpch", "saas", ["run-1"]),
+    ]
+
+
+def test_collect_candidates_takes_identity_from_manifest_not_directory_name(
+    artifacts, make_bundle
+):
+    make_bundle(artifacts, "benchmark-ubuntu-latest", runner_execution_id="run-2")
+    make_bundle(artifacts, "Benchmark Results (1)", runner_execution_id="run-1")
+    assert candidate_layout(collect_candidates(artifacts)) == [
+        ("tpch", "main", ["run-1", "run-2"]),
+    ]
+
+
+def test_collect_candidates_returns_packaged_executions_without_cases(
+    artifacts, make_bundle
+):
+    directory = make_bundle(artifacts, "run-1", fullname="test/bench.py::test_x")
+    [collection] = collect_candidates(artifacts)
+    [execution] = collection.executions
+    assert collection.cases == {}
+    assert execution.manifest.to_json() == (
+        (directory / MANIFEST_FILENAME).read_text(encoding="utf-8").strip()
+    )
+    assert execution.benchmark == json.loads(
+        (directory / "benchmark.json").read_bytes()
+    )
+
+
+def test_collect_candidates_accepts_differing_revisions_and_benchmarks(
+    artifacts, make_bundle
+):
+    # Matching the samples of a test set is part of the comparison.
+    make_bundle(artifacts, "run-1", source_revision="1208d17")
+    make_bundle(
+        artifacts, "run-2", source_revision="09983d5", fullname="test/bench.py::test_x"
+    )
+    [collection] = collect_candidates(artifacts)
+    assert [x.manifest.source_revision for x in collection.executions] == [
+        "1208d17",
+        "09983d5",
+    ]
+
+
+def test_collect_candidates_reports_all_problems_before_comparison(
+    artifacts, make_bundle
+):
+    make_bundle(artifacts, "run-1")
+    make_bundle(artifacts, "copy", runner_execution_id="run-1")
+    (make_bundle(artifacts, "no-benchmark") / "benchmark.json").unlink()
+    (make_bundle(artifacts, "no-manifest") / MANIFEST_FILENAME).unlink()
+    (make_bundle(artifacts, "invalid") / MANIFEST_FILENAME).write_text("{}")
+    (artifacts / "README").write_text("")
+    with pytest.raises(ArtifactError) as error:
+        collect_candidates(artifacts)
+    lines = str(error.value).splitlines()
+    assert len(lines) == 5
+    assert "README is not a directory" in lines[0]
+    assert f"{MANIFEST_FILENAME} is invalid" in lines[1]
+    assert "no-benchmark is missing benchmark.json" in lines[2]
+    assert f"no-manifest contains no {MANIFEST_FILENAME}" in lines[3]
+    assert "duplicate runner execution" in lines[4]
+    assert lines[4].endswith("copy")
