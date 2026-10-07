@@ -4,6 +4,10 @@ A runner artifact is a directory holding ``MANIFEST_FILENAME`` and the JSON
 written by ``pytest --benchmark-json``.  The JSON is copied byte for byte; it
 is parsed only to validate it and to derive the runner platform from its
 ``machine_info``.
+
+Runner artifacts downloaded side by side are validated by `collect_artifacts`
+and collected as the candidate of a benchmark comparison by
+`collect_candidates`.
 """
 
 import json
@@ -26,6 +30,7 @@ from .models import (
     BenchmarkDocument,
     PlatformMetadata,
     RunnerExecution,
+    TestSetCollection,
 )
 
 # Maps the PlatformMetadata fields to the machine_info keys they are read from.
@@ -263,35 +268,80 @@ def duplicate_identities(sources: Iterable[tuple[Path, ArtifactManifest]]) -> li
     return problems
 
 
+def group_executions(
+    executions: Iterable[RunnerExecution],
+) -> list[TestSetCollection]:
+    """
+    Group `executions` into one collection per test set and comparison target.
+
+    The collections and their executions keep the order of `executions`.
+    """
+    groups: dict[tuple[str, str], list[RunnerExecution]] = {}
+    for execution in executions:
+        key = (execution.manifest.test_set_id, execution.manifest.comparison_target)
+        groups.setdefault(key, []).append(execution)
+    # Each collection is validated once, rather than once per added execution.
+    return [
+        TestSetCollection(
+            test_set_id=test_set_id,
+            comparison_target=comparison_target,
+            executions=members,
+        )
+        for (test_set_id, comparison_target), members in groups.items()
+    ]
+
+
 def problems_error(problems: list[str]) -> ArtifactError:
     """Report all `problems` in one error, one problem per line."""
     return ArtifactError("\n".join(problems))
 
 
-def _directory(path: Path) -> bool:
-    """Whether `path` is a directory rather than a symbolic link to one."""
+def _entry_problem(entry: Path) -> str | None:
+    """Why `entry` cannot hold a runner artifact, or ``None`` if it can."""
     try:
-        return path.is_dir() and not path.is_symlink()
+        if entry.is_symlink():
+            return f"{entry} is a symbolic link, not a runner artifact directory"
+        if not entry.is_dir():
+            return f"{entry} is not a directory holding a runner artifact"
     except OSError as error:
-        raise ArtifactError(f"cannot access {path}: {_os_message(error)}") from error
+        raise ArtifactError(f"cannot access {entry}: {_os_message(error)}") from error
+    return None
+
+
+def _flat_layout_hint(artifacts_dir: Path) -> str:
+    return (
+        f"{artifacts_dir} holds a {MANIFEST_FILENAME} itself, but it has to hold"
+        " one runner artifact per subdirectory.  With actions/download-artifact,"
+        " download all artifacts without 'name' and without 'merge-multiple'"
+    )
 
 
 def collect_artifacts(artifacts_dir: Path) -> list[ArtifactBundle]:
     """
     Validate all runner artifacts in `artifacts_dir` and return them.
 
-    Every entry of `artifacts_dir` has to be a directory holding one runner
-    artifact, as validated by `validate_artifact`.  This is the layout of
-    artifacts downloaded side by side, for example by GitHub's
-    ``actions/download-artifact``.  No two artifacts may share a runner
+    Neither `artifacts_dir` nor its entries may be symbolic links, so no
+    artifact is read from outside it.  Every entry has to be a directory
+    holding one runner artifact, as validated by `validate_artifact`.  This is
+    the layout of artifacts downloaded side by side, for example by GitHub's
+    ``actions/download-artifact`` when it downloads all artifacts of a run,
+    without ``name`` and ``merge-multiple``.  Entries whose names start with a
+    dot are ignored, at the top level and inside each artifact, like
+    ``.DS_Store`` files left by macOS.  No two artifacts may share a runner
     execution identity.  The artifacts are returned in directory-name order.
 
     Every artifact is validated before anything is reported: the `ArtifactError`
     raised lists every invalid artifact and every duplicate identity, one per
-    line.  It is also raised if `artifacts_dir` contains no artifact.
+    line.  If `artifacts_dir` holds the files of an artifact itself, the first
+    line explains the expected layout.  The error is also raised if
+    `artifacts_dir` contains no artifact.
     """
+    if artifacts_dir.is_symlink():
+        raise ArtifactError(f"{artifacts_dir} is a symbolic link")
     try:
-        entries = sorted(artifacts_dir.iterdir())
+        entries = sorted(
+            entry for entry in artifacts_dir.iterdir() if not entry.name.startswith(".")
+        )
     except OSError as error:
         raise ArtifactError(
             f"cannot list {artifacts_dir}: {_os_message(error)}"
@@ -299,14 +349,15 @@ def collect_artifacts(artifacts_dir: Path) -> list[ArtifactBundle]:
     if not entries:
         raise ArtifactError(f"{artifacts_dir} contains no runner artifacts")
     problems = []
+    if any(entry.name == MANIFEST_FILENAME for entry in entries):
+        problems.append(_flat_layout_hint(artifacts_dir))
     bundles = []
     for entry in entries:
         try:
-            if not _directory(entry):
-                raise ArtifactError(
-                    f"{entry} is not a directory holding a runner artifact"
-                )
-            bundles.append(ArtifactBundle(entry, validate_artifact(entry)))
+            if problem := _entry_problem(entry):
+                raise ArtifactError(problem)
+            execution = validate_artifact(entry, ignore_hidden=True)
+            bundles.append(ArtifactBundle(entry, execution))
         except ArtifactError as error:
             problems.append(str(error))
     problems.extend(
@@ -315,6 +366,29 @@ def collect_artifacts(artifacts_dir: Path) -> list[ArtifactBundle]:
     if problems:
         raise problems_error(problems)
     return bundles
+
+
+def collect_candidates(artifacts_dir: Path) -> list[TestSetCollection]:
+    """
+    Collect the runner artifacts in `artifacts_dir` as the candidate.
+
+    A comparison checks the *candidate*, the runner executions of the current
+    benchmark run, against the *baseline*, the history loaded by
+    :func:`~exasol.pytest_benchmark.history.load_history`.  Like the baseline,
+    the candidate is grouped into one `TestSetCollection` per test set and
+    comparison target, keeping every runner execution.  The collections and
+    their executions are in directory-name order of the artifacts.  The
+    collections hold no normalized cases: aggregating the cases of the
+    executions is part of the comparison.
+
+    The layout of `artifacts_dir` and the validation are those of
+    `collect_artifacts`.  The names of the subdirectories do not matter; each
+    artifact's identity comes from its manifest.  Raises the `ArtifactError` of
+    `collect_artifacts`, listing every problem before anything is compared.
+    """
+    return group_executions(
+        bundle.execution for bundle in collect_artifacts(artifacts_dir)
+    )
 
 
 def _write(
@@ -410,6 +484,7 @@ __all__ = [
     "ArtifactBundle",
     "ArtifactError",
     "collect_artifacts",
+    "collect_candidates",
     "package_artifact",
     "validate_artifact",
     "validate_benchmark_document",
