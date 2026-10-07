@@ -179,8 +179,9 @@ Every artifact is validated before the history is changed.  A subdirectory
 that is not a complete artifact -- for example one without ``manifest.json``,
 without its benchmark file, or with an invalid manifest -- and two artifacts
 sharing a runner identity are rejected, all of them reported in one error.
-Symbolic links are rejected as well.  Entries whose names start with a dot,
-such as ``.DS_Store`` files, are ignored.
+Symbolic links, for the artifacts directory or inside it, are rejected as
+well.  Entries whose names start with a dot, such as ``.DS_Store`` files, are
+ignored.
 The same validation is available as ``collect_artifacts`` in
 ``exasol.pytest_benchmark.artifact``.
 

@@ -320,7 +320,8 @@ def collect_artifacts(artifacts_dir: Path) -> list[ArtifactBundle]:
     """
     Validate all runner artifacts in `artifacts_dir` and return them.
 
-    Every entry of `artifacts_dir` has to be a directory, not a symbolic link,
+    Neither `artifacts_dir` nor its entries may be symbolic links, so no
+    artifact is read from outside it.  Every entry has to be a directory
     holding one runner artifact, as validated by `validate_artifact`.  This is
     the layout of artifacts downloaded side by side, for example by GitHub's
     ``actions/download-artifact`` when it downloads all artifacts of a run,
@@ -335,6 +336,8 @@ def collect_artifacts(artifacts_dir: Path) -> list[ArtifactBundle]:
     line explains the expected layout.  The error is also raised if
     `artifacts_dir` contains no artifact.
     """
+    if artifacts_dir.is_symlink():
+        raise ArtifactError(f"{artifacts_dir} is a symbolic link")
     try:
         entries = sorted(
             entry for entry in artifacts_dir.iterdir() if not entry.name.startswith(".")

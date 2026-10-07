@@ -105,6 +105,25 @@ def test_collect_rejects_symlinked_artifact(artifacts, tmp_path, make_bundle):
     )
 
 
+def test_collect_rejects_symlinked_artifacts_dir(artifacts, tmp_path, make_bundle):
+    make_bundle(artifacts, "run-1")
+    link = tmp_path / "link"
+    link.symlink_to(artifacts, target_is_directory=True)
+    with pytest.raises(ArtifactError, match="link is a symbolic link$"):
+        collect_artifacts(link)
+
+
+def test_store_rejects_symlinked_artifacts_dir_leaving_history(
+    artifacts, history, tmp_path, make_bundle
+):
+    make_bundle(artifacts, "run-1")
+    link = tmp_path / "link"
+    link.symlink_to(artifacts, target_is_directory=True)
+    with pytest.raises(ArtifactError, match="link is a symbolic link$"):
+        store_history(link, history)
+    assert not history.exists()
+
+
 def test_collect_explains_flat_layout(artifacts, tmp_path, make_bundle):
     # Downloading a single artifact by name puts its files into the directory.
     make_bundle(tmp_path, "artifacts")
