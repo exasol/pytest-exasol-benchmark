@@ -13,6 +13,7 @@ from pathlib import (
 from typing import (
     Annotated,
     Any,
+    Literal,
     TypeVar,
 )
 
@@ -296,25 +297,63 @@ class TestSetCollection(Model):
 
 
 class ComparisonResult(Model):
-    """Comparison of one normalized case between baseline and candidate data."""
+    """Comparison of one benchmark case between the baseline and the candidate.
+
+    ``baseline`` and ``candidate`` are the median round timings of the case in
+    seconds, each aggregated over the runner executions of its side.
+    ``change_percent`` is the slowdown of the candidate relative to the
+    baseline, negative for a speedup, and ``None`` if the baseline is too close
+    to zero for a meaningful percentage, see
+    :func:`~exasol.pytest_benchmark.comparison.compare_collections`.
+    ``regression`` tells whether the candidate is slower than the report
+    allows.  ``attributes`` is an extension point for further derived
+    information.
+    """
 
     fullname: str = Field(min_length=1)
-    baseline: JsonValue = None
-    candidate: JsonValue = None
+    baseline: float = Field(ge=0, allow_inf_nan=False)
+    candidate: float = Field(ge=0, allow_inf_nan=False)
+    change_percent: Annotated[float, Field(allow_inf_nan=False)] | None
+    regression: bool = False
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
     _validate_attributes = field_validator("attributes")(_json_safe)
-    _validate_comparison_values = field_validator("baseline", "candidate")(_json_safe)
+
+
+#: Whether a test set was compared, see `ComparisonReport`.
+ComparisonStatus = Literal["compared", "missing_baseline", "missing_candidate"]
 
 
 class ComparisonReport(Model):
-    """Serializable comparison report between two runner executions."""
+    """Comparison of one test set and comparison target with the baseline.
+
+    ``status`` tells whether the test set was compared:
+
+    ``compared``
+        Both sides hold the test set.  ``results`` compares each benchmark both
+        sides hold; ``baseline_only`` and ``candidate_only`` list the
+        benchmarks only one side holds, for example because they were removed
+        from or added to the test set.
+    ``missing_baseline``
+        The history holds no runner execution of the test set.
+    ``missing_candidate``
+        The candidate holds no runner execution of the test set.
+
+    The execution IDs list the runner executions each side was aggregated
+    from; a side not holding the test set has none.  Only ``compared`` reports
+    hold results and unmatched benchmarks.
+    """
 
     schema_version: int = SCHEMA_VERSION
     test_set_id: Identifier
     comparison_target: Identifier
-    baseline_execution_id: Identifier
-    candidate_execution_id: Identifier
+    status: ComparisonStatus
+    threshold_percent: float = Field(ge=0, allow_inf_nan=False)
+    near_zero_seconds: float = Field(gt=0, allow_inf_nan=False)
+    baseline_execution_ids: list[Identifier] = Field(default_factory=list)
+    candidate_execution_ids: list[Identifier] = Field(default_factory=list)
+    baseline_only: list[str] = Field(default_factory=list)
+    candidate_only: list[str] = Field(default_factory=list)
     results: list[ComparisonResult] = Field(default_factory=list)
 
     @field_validator("schema_version")
@@ -324,12 +363,47 @@ class ComparisonReport(Model):
             raise ValueError(f"unsupported schema version: {value}")
         return value
 
+    @model_validator(mode="after")
+    def consistent_status(self) -> ComparisonReport:
+        if self.status != "compared" and (
+            self.results or self.baseline_only or self.candidate_only
+        ):
+            raise ValueError(
+                f"a report with status {self.status!r} has no results and no"
+                " unmatched benchmarks"
+            )
+        expected = {
+            "compared": (True, True),
+            "missing_baseline": (False, True),
+            "missing_candidate": (True, False),
+        }[self.status]
+        actual = (bool(self.baseline_execution_ids), bool(self.candidate_execution_ids))
+        if actual != expected:
+            raise ValueError(
+                f"a report with status {self.status!r} has execution IDs for"
+                f" exactly the sides holding the test set: baseline {expected[0]},"
+                f" candidate {expected[1]}"
+            )
+        fullnames = [result.fullname for result in self.results]
+        fullnames += self.baseline_only + self.candidate_only
+        if len(fullnames) != len(set(fullnames)):
+            raise ValueError(
+                "a benchmark occurs twice in the results and unmatched benchmarks"
+            )
+        return self
+
+    @property
+    def regressions(self) -> list[ComparisonResult]:
+        """The results classified as a regression."""
+        return [result for result in self.results if result.regression]
+
 
 __all__ = [
     "ArtifactManifest",
     "BenchmarkDocument",
     "ComparisonReport",
     "ComparisonResult",
+    "ComparisonStatus",
     "JsonValue",
     "NormalizedCase",
     "PlatformMetadata",
