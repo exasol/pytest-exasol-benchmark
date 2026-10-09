@@ -32,8 +32,11 @@ def make_comparison_report(**overrides):
     values = {
         "test_set_id": "set",
         "comparison_target": "target",
-        "baseline_execution_id": "baseline",
-        "candidate_execution_id": "candidate",
+        "status": "compared",
+        "threshold_percent": 10.0,
+        "near_zero_seconds": 1e-6,
+        "baseline_execution_ids": ["run-1"],
+        "candidate_execution_ids": ["run-1"],
     }
     values.update(overrides)
     return ComparisonReport(**values)
@@ -91,10 +94,45 @@ def test_manifest_rejects_benchmark_file_with_directory(benchmark_file):
         make_manifest(benchmark_file=benchmark_file)
 
 
+def make_comparison_result(**overrides):
+    values = {
+        "fullname": "test::case",
+        "baseline": 1.0,
+        "candidate": 1.2,
+        "change_percent": 20.0,
+        "regression": True,
+    }
+    values.update(overrides)
+    return ComparisonResult(**values)
+
+
+@pytest.mark.parametrize("field", ["baseline", "candidate", "change_percent"])
+@pytest.mark.parametrize("value", [math.nan, math.inf])
+def test_comparison_result_rejects_non_finite_values(field, value):
+    with pytest.raises(ValidationError, match="finite number"):
+        make_comparison_result(**{field: value})
+
+
 @pytest.mark.parametrize("field", ["baseline", "candidate"])
-def test_comparison_result_rejects_non_finite_values(field):
+def test_comparison_result_rejects_negative_timings(field):
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        make_comparison_result(**{field: -1.0})
+
+
+def test_comparison_result_accepts_an_undefined_change():
+    result = make_comparison_result(baseline=0.0, change_percent=None)
+    assert ComparisonResult.from_json(result.to_json()) == result
+
+
+def test_comparison_result_requires_the_change():
+    values = make_comparison_result().model_dump(exclude={"change_percent"})
+    with pytest.raises(ValidationError, match="change_percent"):
+        ComparisonResult(**values)
+
+
+def test_comparison_result_rejects_non_finite_attributes():
     with pytest.raises(ValidationError, match="JSON-safe"):
-        ComparisonResult(fullname="test::case", **{field: {"mean": math.nan}})
+        make_comparison_result(attributes={"invalid": math.nan})
 
 
 def test_package_does_not_restrict_wildcard_exports():
@@ -169,6 +207,91 @@ def test_comparison_report_rejects_unsupported_schema_version():
 def test_comparison_report_accepts_supported_schema_version():
     report = make_comparison_report(schema_version=1)
     assert report.schema_version == 1
+
+
+def test_comparison_report_json_round_trip():
+    report = make_comparison_report(
+        candidate_execution_ids=["run-1", "run-2"],
+        baseline_only=["test::removed"],
+        candidate_only=["test::added"],
+        results=[make_comparison_result(attributes={"note": "slow"})],
+    )
+    assert ComparisonReport.from_json(report.to_json()) == report
+
+
+def test_comparison_report_lists_regressions():
+    slower = make_comparison_result(fullname="slower")
+    faster = make_comparison_result(
+        fullname="faster", candidate=0.5, change_percent=-50.0, regression=False
+    )
+    report = make_comparison_report(results=[slower, faster])
+    assert report.regressions == [slower]
+
+
+@pytest.mark.parametrize("status", ["missing_baseline", "missing_candidate"])
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("results", [make_comparison_result()]),
+        ("baseline_only", ["test::removed"]),
+        ("candidate_only", ["test::added"]),
+    ],
+)
+def test_comparison_report_rejects_comparison_unless_compared(status, field, value):
+    with pytest.raises(ValidationError, match="has no results"):
+        make_comparison_report(status=status, **{field: value})
+
+
+@pytest.mark.parametrize(
+    "status, overrides",
+    [
+        ("compared", {"baseline_execution_ids": []}),
+        ("compared", {"candidate_execution_ids": []}),
+        ("missing_baseline", {}),
+        (
+            "missing_baseline",
+            {"baseline_execution_ids": [], "candidate_execution_ids": []},
+        ),
+        ("missing_candidate", {}),
+        (
+            "missing_candidate",
+            {"baseline_execution_ids": [], "candidate_execution_ids": []},
+        ),
+    ],
+)
+def test_comparison_report_requires_ids_of_exactly_the_present_sides(status, overrides):
+    with pytest.raises(ValidationError, match="has execution IDs for exactly"):
+        make_comparison_report(status=status, **overrides)
+
+
+@pytest.mark.parametrize(
+    "status, missing",
+    [("missing_baseline", "baseline"), ("missing_candidate", "candidate")],
+)
+def test_comparison_report_accepts_ids_of_the_present_side(status, missing):
+    report = make_comparison_report(status=status, **{f"{missing}_execution_ids": []})
+    assert report.status == status
+
+
+@pytest.mark.parametrize("field", ["baseline_only", "candidate_only"])
+def test_comparison_report_rejects_a_benchmark_twice(field):
+    result = make_comparison_result()
+    with pytest.raises(ValidationError, match="occurs twice"):
+        make_comparison_report(results=[result], **{field: ["test::case"]})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"status": "unknown"},
+        {"threshold_percent": -1.0},
+        {"near_zero_seconds": 0.0},
+        {"baseline_execution_ids": [".hidden"]},
+    ],
+)
+def test_comparison_report_rejects_invalid_values(overrides):
+    with pytest.raises(ValidationError):
+        make_comparison_report(**overrides)
 
 
 def test_runner_execution_rejects_non_object_benchmark_json(tmp_path):

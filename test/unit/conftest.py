@@ -1,5 +1,8 @@
 import json
-from collections.abc import Callable
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 from pathlib import Path
 
 import pytest
@@ -40,8 +43,20 @@ def make_recording_query_func() -> Callable[[QueryResult], RecordingQueryFunc]:
     return RecordingQueryFunc
 
 
-def _benchmark_json(fullname: str = "test/bench.py::test_select") -> bytes:
-    """A pytest-benchmark JSON document holding the single benchmark *fullname*."""
+def _stats(median: float) -> dict[str, float | int]:
+    """The statistics of a benchmark with a single round taking *median* seconds."""
+    return {"median": median, "min": median, "max": median, "mean": median, "rounds": 1}
+
+
+def _benchmark_json(
+    fullname: str = "test/bench.py::test_select",
+    medians: Mapping[str, float] | None = None,
+) -> bytes:
+    """A pytest-benchmark JSON document.
+
+    It holds the single benchmark *fullname*, or, if given, one benchmark for each
+    fullname in *medians*, with complete statistics for the median.
+    """
     # Indented and unsorted like pytest-benchmark's output, so a re-serialization
     # would show up as a byte difference.
     document = {
@@ -50,9 +65,14 @@ def _benchmark_json(fullname: str = "test/bench.py::test_select") -> bytes:
             "machine": "x86_64",
             "python_version": "3.11.9",
         },
-        "benchmarks": [
-            {"fullname": fullname, "stats": {"mean": 1.0000000000000002e-05}}
-        ],
+        "benchmarks": (
+            [{"fullname": fullname, "stats": {"mean": 1.0000000000000002e-05}}]
+            if medians is None
+            else [
+                {"fullname": name, "stats": _stats(median)}
+                for name, median in medians.items()
+            ]
+        ),
         "version": "5.2.3",
     }
     return json.dumps(document, indent=4).encode()
@@ -67,13 +87,15 @@ def _bundle(  # pylint: disable=too-many-arguments
     runner_execution_id: str | None = None,
     source_revision: str = "d66cb7d",
     fullname: str = "test/bench.py::test_select",
+    medians: Mapping[str, float] | None = None,
 ) -> Path:
     """Package a runner artifact as the subdirectory *name* of *artifacts*.
 
-    The runner execution ID defaults to *name*.  Returns the artifact directory.
+    The runner execution ID defaults to *name*.  The benchmarks are described by
+    *fullname* or *medians*, see `_benchmark_json`.  Returns the artifact directory.
     """
     source = artifacts.parent / f"{name}.json"
-    source.write_bytes(_benchmark_json(fullname))
+    source.write_bytes(_benchmark_json(fullname, medians))
     package_artifact(
         source,
         artifacts / name,
@@ -96,6 +118,7 @@ def make_bundle() -> Callable[..., Path]:
     """Package a runner artifact as a subdirectory of a downloads directory.
 
     Called with the downloads directory, the subdirectory name, and optionally
-    the IDs, the source revision, and the benchmark ``fullname``.
+    the IDs, the source revision, and the benchmark ``fullname`` or the
+    ``medians`` of several benchmarks by fullname.
     """
     return _bundle

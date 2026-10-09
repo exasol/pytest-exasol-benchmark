@@ -82,8 +82,9 @@ benchmark data:
     normalized cases keyed by their pytest-benchmark ``fullname``.
 
 ``ComparisonReport`` and ``ComparisonResult``
-    Represent comparison output.  A report identifies the baseline and
-    candidate executions; each result describes one case in that comparison.
+    Represent comparison output.  A report describes the comparison of one
+    test set and comparison target, naming the runner executions aggregated on
+    each side; each result compares one case.
 
 Example artifact
 ~~~~~~~~~~~~~~~~
@@ -229,6 +230,94 @@ reported in one error before anything is compared.  Whether the runner
 executions of a test set contain the same benchmarks is not checked here:
 matching them is part of the comparison.
 
+Comparing with the history
+--------------------------
+
+``compare_with_history`` in ``exasol.pytest_benchmark.comparison`` compares
+the collected candidate with the history of the current checkout.  It reads
+both and writes nothing.  Git is not consulted: whatever ``benchmark-history``
+holds in the working tree is the baseline, whichever revision it was stored
+at.
+
+.. code-block:: python
+
+    from exasol.pytest_benchmark.comparison import compare_with_history
+
+    for report in compare_with_history(
+        Path("artifacts"), Path("benchmark-history"), threshold_percent=10.0
+    ):
+        print(report.test_set_id, report.comparison_target, report.status)
+        for result in report.regressions:
+            change = result.change_percent
+            # No percentage for a baseline too close to zero, see below.
+            text = "n/a" if change is None else f"{change:+.1f} %"
+            print(f"  {result.fullname}: {text}")
+
+``compare_collections`` does the same for collections already loaded, and
+``aggregate_collection`` aggregates a single collection.
+
+Test sets are matched by test set ID and comparison target.  Each side of a
+test set is reduced to one value per benchmark in two steps.  First, each
+runner execution yields the median of the benchmark's round timings, see the
+normalization below.  Then these runner medians are combined into their
+median.  The number of runner executions may differ between the sides.
+
+The runner executions of a test set are parallel runs of the same benchmarks
+on the same revision, for example the jobs of a GitHub Actions matrix, so
+they hold the same benchmarks.  A runner execution lacking a benchmark which
+another one of its side holds is invalid input, in the history as well as in
+the candidate.
+
+.. important::
+
+   A runner execution whose pytest run failed must not produce an artifact.
+   pytest-benchmark leaves a benchmark out of its JSON if the benchmarked
+   function raises, but keeps it if the test fails afterwards, for example in
+   an ``assert`` on the result, so the JSON does not tell whether its tests
+   passed.  In GitHub Actions, this is the default: once the ``pytest`` step
+   fails, the following ``package`` and ``upload-artifact`` steps of the job
+   are skipped.  Do not run them anyway, for example with ``if: always()``
+   on these steps or ``continue-on-error: true`` on the ``pytest`` step: the
+   artifacts of failed runs make the comparison unpredictable, for example
+   by turning a failed benchmark into one which looks removed from the test
+   set.
+
+The benchmarks both sides of a test set hold are compared.  The change of a
+benchmark is ``(candidate - baseline) / baseline * 100`` percent, negative for
+a speedup.  It is a regression if the change is greater than the threshold,
+``10`` percent by default; a change equal to the threshold within rounding is
+not.  A baseline not greater than ``near_zero_seconds``, one millisecond by
+default, is too close to zero for a meaningful percentage: the benchmark is
+compared as if the baseline was ``near_zero_seconds``, and its
+``change_percent`` is ``None``.  So a candidate not slower than
+``near_zero_seconds`` is never a regression, and timings varying around it
+are compared with the threshold like any others.
+
+There is one ``ComparisonReport`` per test set and comparison target of either
+side.  Its ``status`` tells whether the test set was compared:
+
+``compared``
+    Both sides hold the test set.  ``results`` compares each benchmark both
+    sides hold.  ``baseline_only`` lists the benchmarks only the history
+    holds, for example because they were removed from the test set, and
+    ``candidate_only`` those only the candidate holds, for example because they
+    were added.  They are compared once the test set is stored as the history
+    again.
+``missing_baseline``
+    The history holds no runner execution of the test set, for example
+    because the test set is new.
+``missing_candidate``
+    The candidate holds no runner execution of the test set.
+
+Each report lists the runner executions aggregated on each side.  Only the
+compared benchmarks can be regressions; test sets and benchmarks held by one
+side only are reported, but never classified as a regression.  The source
+revision, platform, and attributes of the runner executions are not compared.
+Invalid input is reported in one ``ArtifactError`` listing the problems of
+both sides, each prefixed with ``history`` or ``candidate``: runner executions
+lacking benchmarks, benchmark documents which cannot be normalized, and, for
+``compare_collections``, a test set occurring twice.
+
 Normalized cases and comparison results
 ----------------------------------------
 
@@ -287,25 +376,27 @@ sample the same benchmarks, so the comparison aggregates their cases, for
 example by their median, rather than adding each execution's cases to the
 ``TestSetCollection``.
 
-A ``ComparisonResult`` records the values for one case on both sides of a
-comparison::
+A ``ComparisonResult`` records the aggregated medians of one case on both
+sides of a comparison, in seconds, its change, and whether it is a
+regression::
 
     ComparisonResult(
-        fullname="tests.test_queries::test_select",
-        baseline={"mean": 1.0},
-        candidate={"mean": 1.2},
-        attributes={"change_percent": 20.0},
+        fullname="tests/test_queries.py::test_select[10]",
+        baseline=1.0,
+        candidate=1.2,
+        change_percent=20.0,
+        regression=True,
     )
 
-``baseline`` and ``candidate`` may contain any JSON value.  ``attributes`` is
-an extension point for derived information such as percentage changes,
-significance, or classification.  The models validate these values as JSON
-data so they can be serialized without losing information.
+``attributes`` is an extension point for further derived information.  The
+models validate it as JSON data so it can be serialized without losing
+information.  A ``ComparisonReport`` holds the results of one test set and
+comparison target, see `Comparing with the history`_.
 
 The distinction is therefore::
 
     NormalizedCase   -> one normalized benchmark case
-    ComparisonResult -> comparison of that case across two executions
+    ComparisonResult -> comparison of that case between baseline and candidate
 
 Serialization
 -------------
