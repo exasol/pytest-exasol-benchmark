@@ -275,10 +275,9 @@ def test_comparison_report_accepts_ids_of_the_present_side(status, missing):
 
 @pytest.mark.parametrize("field", ["baseline_only", "candidate_only"])
 def test_comparison_report_rejects_a_benchmark_twice(field):
+    result = make_comparison_result()
     with pytest.raises(ValidationError, match="occurs twice"):
-        make_comparison_report(
-            results=[make_comparison_result()], **{field: ["test::case"]}
-        )
+        make_comparison_report(results=[result], **{field: ["test::case"]})
 
 
 @pytest.mark.parametrize(

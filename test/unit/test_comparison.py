@@ -350,11 +350,13 @@ def test_aggregate_collection_rejects_runners_with_different_benchmarks(
     add_runs, artifacts
 ):
     add_runs(artifacts, {"run-1": {A: 1.0}, "run-2": {A: 1.0, B: 1.0}})
+    collection = only_collection(artifacts)
     with pytest.raises(ArtifactError, match=r"^runner execution .*'run-1'.* hold: "):
-        aggregate_collection(only_collection(artifacts))
+        aggregate_collection(collection)
 
 
 def test_aggregate_collection_rejects_invalid_statistics(add_runs, artifacts):
     add_runs(artifacts, {"run-1": {A: -1.0}})
+    collection = only_collection(artifacts)
     with pytest.raises(ArtifactError, match=r"^the benchmark JSON .*'stats.median'"):
-        aggregate_collection(only_collection(artifacts))
+        aggregate_collection(collection)
