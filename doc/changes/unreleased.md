@@ -8,8 +8,8 @@ execute the generated benchmark-data SQL, an inspector for the size of an
 existing table, the `pytest-exasol-benchmark` executable with its `package`
 command and skeletons of its `compare` and `store` commands, storing runner
 artifacts as the benchmark history, normalizing pytest-benchmark JSON for
-comparisons, and collecting downloaded runner artifacts for comparison with
-the history.
+comparisons, collecting downloaded runner artifacts for comparison with
+the history, and comparing them with the history.
 
 ## Features
 
@@ -26,6 +26,8 @@ the history.
   pytest-benchmark JSON into cases keyed by `fullname`
 * #17: Added `collect_candidates`, which collects downloaded runner artifacts into one
   validated candidate collection per test set and comparison target
+* #18: Added `compare_with_history`, `compare_collections`, and `aggregate_collection`,
+  which compare runner benchmark with the checked-out history
 
 ## Bugfixes
 

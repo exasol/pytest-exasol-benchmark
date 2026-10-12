@@ -18,13 +18,12 @@ from .artifact import (
     ArtifactError,
     package_artifact,
 )
+from .comparison import DEFAULT_THRESHOLD_PERCENT
 from .history import DEFAULT_HISTORY_ROOT
 from .models import (
     IDENTIFIER_RULE,
     Identifier,
 )
-
-DEFAULT_THRESHOLD_PERCENT = 10.0
 
 _IDENTIFIER = TypeAdapter(Identifier)
 
