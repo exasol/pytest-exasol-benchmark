@@ -388,9 +388,10 @@ regression::
         regression=True,
     )
 
-``attributes`` is an extension point for further derived information.  The
-models validate it as JSON data so it can be serialized without losing
-information.  A ``ComparisonReport`` holds the results of one test set and
+``ComparisonResult`` also has an ``attributes`` field, empty by default, an
+extension point for derived information beyond ``change_percent`` and
+``regression``, such as significance.  The models validate it as JSON data so
+it can be serialized without losing information.  A ``ComparisonReport`` holds the results of one test set and
 comparison target, see `Comparing with the history`_.
 
 The distinction is therefore::

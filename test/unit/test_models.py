@@ -238,7 +238,7 @@ def test_comparison_report_lists_regressions():
     ],
 )
 def test_comparison_report_rejects_comparison_unless_compared(status, field, value):
-    with pytest.raises(ValidationError, match="has no results"):
+    with pytest.raises(ValidationError, match="must not have results"):
         make_comparison_report(status=status, **{field: value})
 
 
@@ -260,7 +260,7 @@ def test_comparison_report_rejects_comparison_unless_compared(status, field, val
     ],
 )
 def test_comparison_report_requires_ids_of_exactly_the_present_sides(status, overrides):
-    with pytest.raises(ValidationError, match="has execution IDs for exactly"):
+    with pytest.raises(ValidationError, match="must have execution IDs for exactly"):
         make_comparison_report(status=status, **overrides)
 
 
@@ -276,7 +276,7 @@ def test_comparison_report_accepts_ids_of_the_present_side(status, missing):
 @pytest.mark.parametrize("field", ["baseline_only", "candidate_only"])
 def test_comparison_report_rejects_a_benchmark_twice(field):
     result = make_comparison_result()
-    with pytest.raises(ValidationError, match="occurs twice"):
+    with pytest.raises(ValidationError, match="occurs more than once"):
         make_comparison_report(results=[result], **{field: ["test::case"]})
 
 

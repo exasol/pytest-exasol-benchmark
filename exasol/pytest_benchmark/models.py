@@ -329,15 +329,15 @@ class ComparisonReport(Model):
 
     ``status`` tells whether the test set was compared:
 
-    ``compared``
-        Both sides hold the test set.  ``results`` compares each benchmark both
-        sides hold; ``baseline_only`` and ``candidate_only`` list the
-        benchmarks only one side holds, for example because they were removed
-        from or added to the test set.
-    ``missing_baseline``
-        The history holds no runner execution of the test set.
-    ``missing_candidate``
-        The candidate holds no runner execution of the test set.
+        ``compared``
+            Both sides hold the test set.  ``results`` compares each benchmark
+            both sides hold; ``baseline_only`` and ``candidate_only`` list the
+            benchmarks only one side holds, for example because they were
+            removed from or added to the test set.
+        ``missing_baseline``
+            The history holds no runner execution of the test set.
+        ``missing_candidate``
+            The candidate holds no runner execution of the test set.
 
     The execution IDs list the runner executions each side was aggregated
     from; a side not holding the test set has none.  Only ``compared`` reports
@@ -369,7 +369,7 @@ class ComparisonReport(Model):
             self.results or self.baseline_only or self.candidate_only
         ):
             raise ValueError(
-                f"a report with status {self.status!r} has no results and no"
+                f"a report with status {self.status!r} must not have results nor"
                 " unmatched benchmarks"
             )
         expected = {
@@ -380,15 +380,16 @@ class ComparisonReport(Model):
         actual = (bool(self.baseline_execution_ids), bool(self.candidate_execution_ids))
         if actual != expected:
             raise ValueError(
-                f"a report with status {self.status!r} has execution IDs for"
-                f" exactly the sides holding the test set: baseline {expected[0]},"
+                f"a report with status {self.status!r} must have execution IDs"
+                f" for exactly the sides holding the test set: baseline {expected[0]},"
                 f" candidate {expected[1]}"
             )
         fullnames = [result.fullname for result in self.results]
         fullnames += self.baseline_only + self.candidate_only
         if len(fullnames) != len(set(fullnames)):
             raise ValueError(
-                "a benchmark occurs twice in the results and unmatched benchmarks"
+                "a benchmark occurs more than once in the results and unmatched"
+                " benchmarks"
             )
         return self
 

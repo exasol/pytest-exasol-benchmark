@@ -5,8 +5,8 @@ compared with the *baseline*, the history in the current checkout.  Each side
 is reduced to one value per test set and benchmark: each runner execution
 yields the median of the benchmark's round timings, and these runner medians
 are combined into their median.  A benchmark of the candidate slower than the
-baseline by more than a threshold is a regression.  Test sets and benchmarks present on one side only are reported,
-but never classified as a regression.
+baseline by more than a threshold is a regression.  Test sets and benchmarks
+present on one side only are reported, but never classified as a regression.
 """
 
 import math
@@ -39,7 +39,7 @@ DEFAULT_THRESHOLD_PERCENT = 10.0
 DEFAULT_NEAR_ZERO_SECONDS = 1e-3
 
 # A (test set ID, comparison target) pair, naming one test set collection.
-_Key = tuple[str, str]
+_TestSetKey = tuple[str, str]
 
 # Relative tolerance of the threshold, so a change equal to the threshold is
 # no regression even if computing it was not exact, for example 2.0 -> 2.2.
@@ -52,14 +52,19 @@ def _median(case: NormalizedCase) -> float:
 
 
 def _aggregate(
-    collection: TestSetCollection, prefix: str, problems: list[str]
+    collection: TestSetCollection, err_prefix: str, problems: list[str]
 ) -> TestSetCollection:
     """
     Aggregate the cases of the runner executions of `collection`.
 
-    Returns a copy of `collection` with one case per benchmark.  Every problem
-    is appended to `problems`, prefixed with `prefix`, which names the side of
-    a comparison the collection belongs to; then the copy holds no cases.
+    All or nothing: if any runner execution has a problem, no benchmark is
+    aggregated, and the returned copy of `collection` holds no cases at all.
+    Otherwise it holds one case per benchmark.
+
+    Problems are collected rather than raised, so the caller can report those
+    of all collections at once.  Each one is appended to `problems`, prefixed
+    with `err_prefix`.  The caller raises if `problems` is not empty
+    afterwards, so a copy without cases is never compared.
     """
     normalized = []
     failed = False
@@ -67,13 +72,14 @@ def _aggregate(
         try:
             normalized.append((execution, normalize_execution(execution)))
         except ArtifactError as error:
-            problems.extend(prefix + line for line in str(error).splitlines())
+            problems.extend(err_prefix + line for line in str(error).splitlines())
             failed = True
     fullnames = list(dict.fromkeys(name for _, cases in normalized for name in cases))
     for execution, cases in normalized:
         if missing := [name for name in fullnames if name not in cases]:
             problems.append(
-                f"{prefix}runner execution ({describe_identity(execution.manifest)})"
+                f"{err_prefix}runner execution"
+                f" ({describe_identity(execution.manifest)})"
                 " lacks benchmarks which other runner executions of its test set"
                 f" hold: {', '.join(missing)}"
             )
@@ -133,15 +139,15 @@ def _check_parameters(threshold_percent: float, near_zero_seconds: float) -> Non
 
 def _by_key(
     collections: Iterable[TestSetCollection], side: str, problems: list[str]
-) -> dict[_Key, TestSetCollection]:
+) -> dict[_TestSetKey, TestSetCollection]:
     """
     Aggregate `collections`, keyed by test set and comparison target.
 
     A collection without runner executions holds no test set, so it is left
     out, as if `collections` did not contain it.
     """
-    seen: set[_Key] = set()
-    aggregated: dict[_Key, TestSetCollection] = {}
+    seen: set[_TestSetKey] = set()
+    aggregated: dict[_TestSetKey, TestSetCollection] = {}
     for collection in collections:
         key = (collection.test_set_id, collection.comparison_target)
         if key in seen:
@@ -191,7 +197,7 @@ def _execution_ids(collection: TestSetCollection | None) -> list[str]:
 
 
 def _report(
-    key: _Key,
+    key: _TestSetKey,
     baseline: TestSetCollection | None,
     candidate: TestSetCollection | None,
     threshold_percent: float,
@@ -256,8 +262,9 @@ def compare_collections(
     Benchmarks held by one side only, for example because they were added to
     or removed from the test set, are listed in the report.  A test set held by
     one side only, or without runner executions on the other side, is
-    reported with the corresponding status.  Neither is a regression.  Runner executions are not matched across the sides, and
-    their source revision, platform, and attributes are not compared.
+    reported with the corresponding status.  Neither is a regression.  Runner
+    executions are not matched across the sides, and their source revision,
+    platform, and attributes are not compared.
 
     Raises a `ValueError` if `threshold_percent` is negative or
     `near_zero_seconds` not positive, or either is not finite.  Raises an
