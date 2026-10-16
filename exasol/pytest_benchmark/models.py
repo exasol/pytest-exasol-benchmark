@@ -306,8 +306,9 @@ class ComparisonResult(Model):
     to zero for a meaningful percentage, see
     :func:`~exasol.pytest_benchmark.comparison.compare_collections`.
     ``regression`` tells whether the candidate is slower than the report
-    allows.  ``attributes`` is an extension point for further derived
-    information.
+    allows, ``speedup`` whether it is faster by more than the report's
+    threshold.  A result is never both.  ``attributes`` is an extension point
+    for further derived information.
     """
 
     fullname: str = Field(min_length=1)
@@ -315,9 +316,16 @@ class ComparisonResult(Model):
     candidate: float = Field(ge=0, allow_inf_nan=False)
     change_percent: Annotated[float, Field(allow_inf_nan=False)] | None
     regression: bool = False
+    speedup: bool = False
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
     _validate_attributes = field_validator("attributes")(_json_safe)
+
+    @model_validator(mode="after")
+    def not_regression_and_speedup(self) -> ComparisonResult:
+        if self.regression and self.speedup:
+            raise ValueError("a result must not be both a regression and a speedup")
+        return self
 
 
 #: Whether a test set was compared, see `ComparisonReport`.
@@ -397,6 +405,11 @@ class ComparisonReport(Model):
     def regressions(self) -> list[ComparisonResult]:
         """The results classified as a regression."""
         return [result for result in self.results if result.regression]
+
+    @property
+    def speedups(self) -> list[ComparisonResult]:
+        """The results classified as a speedup."""
+        return [result for result in self.results if result.speedup]
 
 
 __all__ = [

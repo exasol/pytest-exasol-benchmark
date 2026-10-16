@@ -5,11 +5,11 @@
 Added versioned public models for benchmark artifacts, the Git-trackable
 benchmark-history layout, and comparison reports, data producer helpers which
 execute the generated benchmark-data SQL, an inspector for the size of an
-existing table, the `pytest-exasol-benchmark` executable with its `package`
-command and skeletons of its `compare` and `store` commands, storing runner
-artifacts as the benchmark history, normalizing pytest-benchmark JSON for
-comparisons, collecting downloaded runner artifacts for comparison with
-the history, and comparing them with the history.
+existing table, the `pytest-exasol-benchmark` executable with its `package`,
+`compare`, and `store` commands, storing runner artifacts as the benchmark
+history, normalizing pytest-benchmark JSON for comparisons, collecting
+downloaded runner artifacts for comparison with the history, and comparing
+them with the history, highlighting regressions and speedups.
 
 ## Features
 
@@ -28,6 +28,10 @@ the history, and comparing them with the history.
   validated candidate collection per test set and comparison target
 * #18: Added `compare_with_history`, `compare_collections`, and `aggregate_collection`,
   which compare runner benchmark with the checked-out history
+* #19: Implemented the `compare` and `store` commands.  `compare` prints the
+  regressions and the speedups. All commands exit with 2 on errors, `store_history` now 
+  also rejects test sets whose runner executions hold different benchmarks or invalid
+  statistics
 
 ## Bugfixes
 
@@ -52,6 +56,8 @@ the history, and comparing them with the history.
   duplicate runner executions at once, validates each execution like a packaged
   artifact, and rejects execution directories without a manifest, symbolic links,
   and the history of a running or interrupted store
+* #19: Moved `aggregate_collection` from `comparison` to the new module `aggregation`,
+  so `store_history` can validate test sets
 
 ## Dependency Updates
 
