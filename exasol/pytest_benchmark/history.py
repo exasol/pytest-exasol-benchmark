@@ -10,6 +10,7 @@ from contextlib import suppress
 from functools import partial
 from pathlib import Path
 
+from .aggregation import aggregate_into
 from .artifact import (
     ArtifactBundle,
     ArtifactError,
@@ -366,10 +367,16 @@ def store_history(
     store do not remain in the baseline.  Earlier baselines are recovered from
     Git.  Subtrees of other collections are left untouched.
 
-    Everything is validated before the history is changed.  The collections are
-    copied to the staging directory ``<root>/.store`` first and then moved in
-    place.  If that fails, the replaced subtrees are restored.  If even that
-    fails, the error names the staging directory, which keeps them.
+    Everything is validated before the history is changed.  Besides each
+    artifact, each collection is checked like a comparison checks the history:
+    its runner executions have to hold the same benchmarks, and their
+    statistics have to be valid, see
+    :func:`~exasol.pytest_benchmark.aggregation.aggregate_collection`.
+    Otherwise the stored history would make every later comparison fail.  The
+    collections are copied to the staging directory ``<root>/.store`` first
+    and then moved in place.  If that fails, the replaced subtrees are
+    restored.  If even that fails, the error names the staging directory,
+    which keeps them.
 
     Only one store may write *root* at a time; the staging directory, created
     before *root* is checked, keeps a second one out.  While it exists,
@@ -379,13 +386,21 @@ def store_history(
 
     Returns the stored collections.  Raises an
     :class:`~exasol.pytest_benchmark.artifact.ArtifactError` if an artifact is
-    invalid, if two artifacts share an identity, if a store is running or was
-    interrupted, if *root* is or contains a symbolic link, if a manifest of a stored
-    collection lies outside its subtree in *root*, if a manifest of another
+    invalid, if two artifacts share an identity, if the runner executions of a
+    collection hold different benchmarks or invalid statistics, if a store is
+    running or was interrupted, if *root* is or contains a symbolic link, if a
+    manifest of a stored collection lies outside its subtree in *root*, if a
+    manifest of another
     collection lies inside a replaced subtree, or if the files cannot be read
     or written.
     """
     bundles = collect_artifacts(artifacts_dir)
+    collections = group_executions(bundle.execution for bundle in bundles)
+    problems: list[str] = []
+    for collection in collections:
+        aggregate_into(collection, "", problems)
+    if problems:
+        raise problems_error(problems)
     groups = _groups(bundles)
     try:
         _write(root, groups)
@@ -393,7 +408,7 @@ def store_history(
         raise ArtifactError(
             f"cannot store the history in {root}: {_os_message(error)}"
         ) from error
-    return group_executions(bundle.execution for bundle in bundles)
+    return collections
 
 
 __all__ = ["load_history", "store_history"]

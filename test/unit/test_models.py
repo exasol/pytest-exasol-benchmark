@@ -130,6 +130,11 @@ def test_comparison_result_requires_the_change():
         ComparisonResult(**values)
 
 
+def test_comparison_result_rejects_regression_and_speedup():
+    with pytest.raises(ValidationError, match="both a regression and a speedup"):
+        make_comparison_result(speedup=True)
+
+
 def test_comparison_result_rejects_non_finite_attributes():
     with pytest.raises(ValidationError, match="JSON-safe"):
         make_comparison_result(attributes={"invalid": math.nan})
@@ -219,13 +224,21 @@ def test_comparison_report_json_round_trip():
     assert ComparisonReport.from_json(report.to_json()) == report
 
 
-def test_comparison_report_lists_regressions():
+def test_comparison_report_lists_regressions_and_speedups():
     slower = make_comparison_result(fullname="slower")
     faster = make_comparison_result(
-        fullname="faster", candidate=0.5, change_percent=-50.0, regression=False
+        fullname="faster",
+        candidate=0.5,
+        change_percent=-50.0,
+        regression=False,
+        speedup=True,
     )
-    report = make_comparison_report(results=[slower, faster])
+    unchanged = make_comparison_result(
+        fullname="unchanged", candidate=1.0, change_percent=0.0, regression=False
+    )
+    report = make_comparison_report(results=[slower, faster, unchanged])
     assert report.regressions == [slower]
+    assert report.speedups == [faster]
 
 
 @pytest.mark.parametrize("status", ["missing_baseline", "missing_candidate"])
