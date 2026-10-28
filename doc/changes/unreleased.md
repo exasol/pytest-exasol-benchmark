@@ -28,6 +28,7 @@ the history, and comparing them with the history.
   validated candidate collection per test set and comparison target
 * #18: Added `compare_with_history`, `compare_collections`, and `aggregate_collection`,
   which compare runner benchmark with the checked-out history
+* #1: Added support for Python 3.14
 
 ## Bugfixes
 
@@ -52,6 +53,7 @@ the history, and comparing them with the history.
   duplicate runner executions at once, validates each execution like a packaged
   artifact, and rejects execution directories without a manifest, symbolic links,
   and the history of a running or interrupted store
+* #47: Removed support for Python 3.10 and updated exasol-toolbox 12.0.0
 
 ## Dependency Updates
 
