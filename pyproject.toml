@@ -33,7 +33,7 @@ exasol_benchmark = "exasol.pytest_benchmark"
 
 [dependency-groups]
 dev = [
-    "exasol-toolbox>=10.3.0,<11",
+    "exasol-toolbox>=12.0.0,<13",
     "pyexasol (>=2.3.0,<3.0.0)",
     "pytest-exasol-backend (>=1.5.1,<2.0.0)",
     "pytest-exasol-extension (>=1.0.1,<2.0.0)"
