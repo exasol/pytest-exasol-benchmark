@@ -25,7 +25,7 @@ pytest-exasol-benchmark Plugin
 🔌️ Prerequisites
 -----------------
 
-- `Python <https://www.python.org/>`__ >= 3.10
+- `Python <https://www.python.org/>`__ >= 3.11
 
 💾 Installation
 ---------------
