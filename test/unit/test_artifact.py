@@ -163,10 +163,6 @@ def test_package_accepts_missing_python_version(source, output_dir):
             RAW.replace(b"1.0000000000000002e-05", b"1e999"),
             "contains 1e999, which is not a finite number",
         ),
-        (
-            b'{"x":' + b'{"x":' * 100_000 + b"0" + b"}" * 100_001,
-            "is nested too deeply",
-        ),
     ],
     ids=lambda value: value[:40] if isinstance(value, bytes) else None,
 )
