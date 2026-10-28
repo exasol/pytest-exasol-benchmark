@@ -7,5 +7,4 @@ from exasol.toolbox.config import BaseConfig
 PROJECT_CONFIG = BaseConfig(
     project_name="pytest_benchmark",
     root_path=Path(__file__).parent,
-    python_versions=("3.11", "3.12", "3.13"),
 )
