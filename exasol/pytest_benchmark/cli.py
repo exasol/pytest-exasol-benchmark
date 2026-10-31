@@ -19,6 +19,10 @@ from .artifact import (
     _os_message,
     package_artifact,
 )
+from .cli_output import (
+    format_comparison_reports,
+    format_store_result,
+)
 from .comparison import (
     DEFAULT_THRESHOLD_PERCENT,
     compare_with_history,
@@ -30,7 +34,6 @@ from .history import (
 from .models import (
     IDENTIFIER_RULE,
     ComparisonReport,
-    ComparisonResult,
     Identifier,
 )
 
@@ -159,114 +162,49 @@ def package(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     click.echo(f"Packaged runner artifact to {output_dir}")
 
 
-def _plural(count: int, noun: str) -> str:
-    """`count` followed by `noun`, with an ``s`` appended unless `count` is 1."""
-    return f"{count} {noun}{'' if count == 1 else 's'}"
-
-
-def _seconds(value: float) -> str:
-    """A timing in seconds, rounded to four significant digits."""
-    return f"{value:.4g} s"
-
-
-def _format_result(result: ComparisonResult) -> str:
-    """
-    One indented line of a report: the change in percent, right-aligned, the
-    baseline and candidate timings, and the benchmark's fullname.
-    """
-    change = result.change_percent
-    # No percentage for a zero baseline or a non-finite calculation.
-    text = "n/a" if change is None else f"{change:+.1f} %"
-    return (
-        f"    {text:>9}  {_seconds(result.baseline)} ->"
-        f" {_seconds(result.candidate)}  {result.fullname}"
-    )
-
-
-def _format_report(report: ComparisonReport) -> list[str]:
-    """
-    The lines describing `report`.
-
-    A test set held by one side only is described by a single line.  For a
-    compared one, a header is followed by sections for the regressions, the
-    speedups, the results within the tolerance, and the benchmarks held by one
-    side only; empty sections are left out.
-    """
-    name = (
-        f"Test set {report.test_set_id} of comparison target"
-        f" {report.comparison_target}"
-    )
-    baseline_ids = report.baseline_execution_ids
-    candidate_ids = report.candidate_execution_ids
-    if report.status == "missing_baseline":
-        return [
-            f"{name}: not in the history, nothing compared"
-            f" ({_plural(len(candidate_ids), 'candidate runner execution')})"
-        ]
-    if report.status == "missing_candidate":
-        return [f"{name}: not in the candidate, nothing compared"]
-    lines = [
-        f"{name}: compared"
-        f" {_plural(len(baseline_ids), 'history runner execution')}"
-        f" with {len(candidate_ids)} of the candidate"
-    ]
-    threshold = f"{report.threshold_percent:g} %"
-    within = [r for r in report.results if not (r.regression or r.speedup)]
-    for title, results in (
-        (f"Regressions, slower by more than {threshold}:", report.regressions),
-        (f"Suspicious speedups, faster by more than {threshold}:", report.speedups),
-        ("Within the tolerance:", within),
-    ):
-        if results:
-            lines.append(f"  {title}")
-            lines.extend(_format_result(result) for result in results)
-    for title, fullnames in (
-        ("Only in the candidate:", report.candidate_only),
-        ("Only in the history:", report.baseline_only),
-    ):
-        if fullnames:
-            lines.append(f"  {title}")
-            lines.extend(f"    {fullname}" for fullname in fullnames)
-    return lines
-
-
-def _summary(reports: list[ComparisonReport]) -> str:
-    """
-    One line counting the results of all `reports` by outcome.
-
-    Regressions, speedups, and results within the tolerance are always
-    counted.  Benchmarks and test sets held by one side only are counted if
-    there are any.
-    """
-
-    def count(attribute: str) -> int:
-        """The total length of the list `attribute` over all reports."""
-        return sum(len(getattr(report, attribute)) for report in reports)
-
-    def status(value: str) -> int:
-        """The number of reports with the status `value`."""
-        return sum(report.status == value for report in reports)
-
-    regressions = count("regressions")
-    speedups = count("speedups")
-    parts = [
-        _plural(regressions, "regression"),
-        _plural(speedups, "speedup"),
-        f"{count('results') - regressions - speedups} within the tolerance",
-    ]
-    for number, text in (
-        (count("candidate_only"), "only in the candidate"),
-        (count("baseline_only"), "only in the history"),
-    ):
-        if number:
-            parts.append(f"{_plural(number, 'benchmark')} {text}")
-    for number, text in (
-        (status("missing_baseline"), "not in the history"),
-        (status("missing_candidate"), "not in the candidate"),
-    ):
-        if number:
-            parts.append(f"{_plural(number, 'test set')} {text}")
-    return "Summary: " + ", ".join(parts)
+def _run_comparison(
+    artifacts_dir: Path,
+    history_root: Path,
+    threshold: float,
+    json_output: Path | None,
+) -> list[ComparisonReport]:
+    """Compare, validate, and optionally serialize runner-artifact reports."""
+    if json_output is not None:
+        # A failed comparison must not leave the reports of an earlier one.
+        try:
+            json_output.unlink(missing_ok=True)
+        except OSError as error:
+            raise _CommandError(
+                f"cannot remove earlier reports: {_os_message(error)}"
+            ) from error
+    try:
+        reports = compare_with_history(
+            artifacts_dir, history_root, threshold_percent=threshold
+        )
+    except ArtifactError as error:
+        raise _CommandError(str(error)) from error
+    except OSError as error:
+        # Not every file system error is reported as an ArtifactError, and exit
+        # status 1 would report it as a regression.
+        raise _CommandError(f"cannot compare: {_os_message(error)}") from error
+    if not any(report.status == "compared" for report in reports):
+        # Without a compared test set nothing can exceed the tolerance, so passing
+        # would hide a mistyped --history-root, test set ID, or comparison
+        # target, or a checkout without the history.
+        raise _CommandError(
+            f"the history in {history_root} holds none of the candidate's test"
+            " sets, so nothing can be compared.  Check --history-root and the"
+            " test set IDs and comparison targets of the artifacts, or store a"
+            " benchmark run as the history first, see the store command"
+        )
+    if json_output is not None:
+        try:
+            json_output.write_bytes(_REPORTS.dump_json(reports, indent=2) + b"\n")
+        except OSError as error:
+            raise _CommandError(
+                f"cannot write the reports: {_os_message(error)}"
+            ) from error
+    return reports
 
 
 @main.command()
@@ -313,44 +251,8 @@ def compare(
     Test sets and benchmarks held by one side only are reported, but do not
     fail the comparison.
     """
-    if json_output is not None:
-        # A failed comparison must not leave the reports of an earlier one.
-        try:
-            json_output.unlink(missing_ok=True)
-        except OSError as error:
-            raise _CommandError(
-                f"cannot remove earlier reports: {_os_message(error)}"
-            ) from error
-    try:
-        reports = compare_with_history(
-            artifacts_dir, history_root, threshold_percent=threshold
-        )
-    except ArtifactError as error:
-        raise _CommandError(str(error)) from error
-    except OSError as error:
-        # Not every file system error is reported as an ArtifactError, and exit
-        # status 1 would report it as a regression.
-        raise _CommandError(f"cannot compare: {_os_message(error)}") from error
-    if not any(report.status == "compared" for report in reports):
-        # Without a compared test set nothing can exceed the tolerance, so passing
-        # would hide a mistyped --history-root, test set ID, or comparison
-        # target, or a checkout without the history.
-        raise _CommandError(
-            f"the history in {history_root} holds none of the candidate's test"
-            " sets, so nothing can be compared.  Check --history-root and the"
-            " test set IDs and comparison targets of the artifacts, or store a"
-            " benchmark run as the history first, see the store command"
-        )
-    if json_output is not None:
-        try:
-            json_output.write_bytes(_REPORTS.dump_json(reports, indent=2) + b"\n")
-        except OSError as error:
-            raise _CommandError(
-                f"cannot write the reports: {_os_message(error)}"
-            ) from error
-    for report in reports:
-        click.echo("\n".join(_format_report(report)))
-    click.echo(_summary(reports))
+    reports = _run_comparison(artifacts_dir, history_root, threshold, json_output)
+    click.echo("\n".join(format_comparison_reports(reports)))
     if any(report.regressions or report.speedups for report in reports):
         ctx.exit(_COMPARISON_FAILURE_EXIT_CODE)
 
@@ -373,14 +275,4 @@ def store(artifacts_dir: Path, history_root: Path) -> None:
     except OSError as error:
         # Not every file system error is reported as an ArtifactError.
         raise _CommandError(f"cannot store: {_os_message(error)}") from error
-    executions = sum(len(collection.executions) for collection in collections)
-    click.echo(
-        f"Stored {_plural(executions, 'runner execution')} of"
-        f" {_plural(len(collections), 'test set')} in {history_root}"
-    )
-    for collection in collections:
-        click.echo(
-            f"  Test set {collection.test_set_id} of comparison target"
-            f" {collection.comparison_target}: "
-            + ", ".join(x.manifest.runner_execution_id for x in collection.executions)
-        )
+    click.echo("\n".join(format_store_result(collections, history_root)))
