@@ -1,7 +1,6 @@
 import hashlib
 import math
 import shutil
-import sys
 from pathlib import Path
 
 import pytest
@@ -11,7 +10,7 @@ from exasol.pytest_benchmark.artifact import (
     collect_candidates,
 )
 from exasol.pytest_benchmark.comparison import (
-    DEFAULT_NEAR_ZERO_SECONDS,
+    DEFAULT_ABSOLUTE_FLOOR_SECONDS,
     DEFAULT_THRESHOLD_PERCENT,
     compare_collections,
     compare_with_history,
@@ -79,7 +78,7 @@ def results(report: ComparisonReport) -> dict[str, tuple[float, bool]]:
 
 def test_defaults():
     assert DEFAULT_THRESHOLD_PERCENT == 10.0
-    assert DEFAULT_NEAR_ZERO_SECONDS == 1e-3
+    assert DEFAULT_ABSOLUTE_FLOOR_SECONDS == 1e-3
 
 
 def test_compares_aggregated_medians(store, add_runs, artifacts, compare):
@@ -222,22 +221,15 @@ def test_rejects_runners_with_different_benchmarks(
     "baseline, candidate, change, regression, speedup",
     [
         pytest.param(0.0, 0.0, None, False, False, id="both-zero"),
-        pytest.param(0.0, 1e-3, None, False, False, id="candidate-at-floor"),
-        pytest.param(1e-4, 9e-4, None, False, False, id="both-below-floor"),
-        pytest.param(0.0, 2e-3, None, True, False, id="zero-baseline"),
-        # Compared with the floor: a change of 2% and of exactly the threshold.
-        pytest.param(0.99e-3, 1.01e-3, None, False, False, id="noise-around-floor"),
-        pytest.param(0.0, 1.1e-3, None, False, False, id="floor-plus-threshold"),
-        pytest.param(0.0, 1.2e-3, None, True, False, id="above-floor-plus-threshold"),
-        pytest.param(1e-3, 5.0, None, True, False, id="baseline-at-floor"),
-        # Compared with the floor, these would be changes of -50% and -100%.
-        pytest.param(0.5e-3, 0.5e-3, None, False, False, id="unchanged-below-floor"),
-        pytest.param(1e-3, 0.0, None, False, False, id="faster-from-floor"),
-        pytest.param(2e-3, 1e-3, -50.0, False, True, id="faster-to-floor"),
-        pytest.param(2e-3, 3e-3, 50.0, True, False, id="baseline-above-floor"),
+        pytest.param(0.0, 1e-3, None, False, False, id="zero-at-floor"),
+        pytest.param(0.0, 1.1e-3, None, True, False, id="zero-above-floor"),
+        pytest.param(1e-4, 9e-4, 800.0, False, False, id="below-floor"),
+        pytest.param(1e-4, 1.2e-3, 1100.0, True, False, id="above-floor"),
+        pytest.param(1.2e-3, 1e-4, -91.66666666666667, False, True, id="speedup-above-floor"),
+        pytest.param(2e-3, 1e-3, -50.0, False, False, id="speedup-at-floor"),
     ],
 )
-def test_near_zero(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def test_absolute_floor(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     store,
     add_runs,
     artifacts,
@@ -259,19 +251,25 @@ def test_near_zero(  # pylint: disable=too-many-arguments,too-many-positional-ar
     assert result.speedup is speedup
 
 
-def test_custom_near_zero(store, add_runs, artifacts, compare):
+def test_custom_absolute_floor(store, add_runs, artifacts, compare):
     store({"run-1": {A: 0.001}})
     add_runs(artifacts, {"run-1": {A: 0.002}})
-    report = only(compare(near_zero_seconds=0.01))
-    assert report.near_zero_seconds == 0.01
-    assert report.results[0].change_percent is None
+    report = only(compare(absolute_floor_seconds=0.01))
+    assert report.absolute_floor_seconds == 0.01
+    assert report.results[0].change_percent == 100.0
     assert report.regressions == []
 
 
-def test_floor_respects_threshold(store, add_runs, artifacts, compare):
-    store({"run-1": {A: 0.0}})
-    add_runs(artifacts, {"run-1": {A: 1.5e-3}})
-    assert only(compare(threshold_percent=100.0)).regressions == []
+def test_percentage_band_classifies_regressions(store, add_runs, artifacts, compare):
+    store({"run-1": {A: 1.0}})
+    add_runs(artifacts, {"run-1": {A: 1.15}})
+    assert only(compare()).regressions
+
+
+def test_percentage_band_classifies_speedups(store, add_runs, artifacts, compare):
+    store({"run-1": {A: 1.0}})
+    add_runs(artifacts, {"run-1": {A: 0.85}})
+    assert only(compare()).speedups
 
 
 @pytest.mark.parametrize("side", ["baseline", "candidate"])
@@ -288,15 +286,15 @@ def test_collection_without_executions_is_missing(
     assert report.status == f"missing_{side}"
 
 
-def test_change_does_not_overflow(add_runs, artifacts, tmp_path):
+def test_non_finite_percentage_is_not_reported(add_runs, artifacts, tmp_path):
     add_runs(artifacts, {"run-1": {A: 1e300}})
     candidate = collect_candidates(artifacts)
     add_runs(tmp_path / "baseline", {"run-1": {A: 1e-200}})
     baseline = collect_candidates(tmp_path / "baseline")
     result = only(
-        compare_collections(baseline, candidate, near_zero_seconds=1e-300)
+        compare_collections(baseline, candidate, absolute_floor_seconds=1e-300)
     ).results[0]
-    assert result.change_percent == sys.float_info.max
+    assert result.change_percent is None
     assert result.regression
 
 
@@ -337,8 +335,8 @@ def test_rejects_invalid_statistics(write_history, add_runs, artifacts, compare)
     [
         ({"threshold_percent": -1.0}, "threshold_percent"),
         ({"threshold_percent": math.nan}, "threshold_percent"),
-        ({"near_zero_seconds": 0.0}, "near_zero_seconds"),
-        ({"near_zero_seconds": math.inf}, "near_zero_seconds"),
+        ({"absolute_floor_seconds": 0.0}, "absolute_floor_seconds"),
+        ({"absolute_floor_seconds": math.inf}, "absolute_floor_seconds"),
     ],
 )
 def test_rejects_invalid_parameters(kwargs, message):

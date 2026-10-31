@@ -6,12 +6,11 @@ is reduced to one value per test set and benchmark: each runner execution
 yields the median of the benchmark's round timings, and these runner medians
 are combined into their median.  A benchmark of the candidate slower than the
 baseline by more than a threshold is a regression, one faster by more than
-the threshold a speedup.  Test sets and benchmarks present on one side only
+the same tolerance a speedup.  Test sets and benchmarks present on one side only
 are reported, but never classified as a regression.
 """
 
 import math
-import sys
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -36,7 +35,7 @@ from .models import (
 )
 
 DEFAULT_THRESHOLD_PERCENT = 10.0
-DEFAULT_NEAR_ZERO_SECONDS = 1e-3
+DEFAULT_ABSOLUTE_FLOOR_SECONDS = 1e-3
 
 # A (test set ID, comparison target) pair, naming one test set collection.
 _TestSetKey = tuple[str, str]
@@ -47,15 +46,16 @@ _TestSetKey = tuple[str, str]
 _THRESHOLD_TOLERANCE = 1e-9
 
 
-def _check_parameters(threshold_percent: float, near_zero_seconds: float) -> None:
+def _check_parameters(threshold_percent: float, absolute_floor_seconds: float) -> None:
     if not math.isfinite(threshold_percent) or threshold_percent < 0:
         raise ValueError(
             f"threshold_percent {threshold_percent} is not a finite non-negative"
             " number"
         )
-    if not math.isfinite(near_zero_seconds) or near_zero_seconds <= 0:
+    if not math.isfinite(absolute_floor_seconds) or absolute_floor_seconds <= 0:
         raise ValueError(
-            f"near_zero_seconds {near_zero_seconds} is not a finite positive number"
+            "absolute_floor_seconds"
+            f" {absolute_floor_seconds} is not a finite positive number"
         )
 
 
@@ -84,10 +84,10 @@ def _by_key(
     return aggregated
 
 
-def _beyond(change: float, threshold_percent: float) -> bool:
-    """Whether `change` is greater than `threshold_percent`, beyond rounding."""
-    return change > threshold_percent and not math.isclose(
-        change, threshold_percent, rel_tol=_THRESHOLD_TOLERANCE
+def _beyond(delta: float, allowed_delta: float) -> bool:
+    """Whether `delta` exceeds `allowed_delta`, beyond rounding."""
+    return delta > allowed_delta and not math.isclose(
+        delta, allowed_delta, rel_tol=_THRESHOLD_TOLERANCE
     )
 
 
@@ -96,29 +96,32 @@ def _result(
     baseline: float,
     candidate: float,
     threshold_percent: float,
-    near_zero_seconds: float,
+    absolute_floor_seconds: float,
 ) -> ComparisonResult:
     """
     Compare the aggregated medians of one benchmark.
 
-    The change is relative to the baseline, but at least to
-    `near_zero_seconds`, and limited to the largest float rather than
-    overflowing.  It is reported only if the baseline is greater than
-    `near_zero_seconds`: a percentage of a timing that close to zero is
-    meaningless.  For the same reason, only a reported change can be a
-    speedup: compared with `near_zero_seconds`, an unchanged baseline below it
-    would look faster.
+    A difference in either direction is excessive only when it is larger than
+    both the configured absolute floor and the relative threshold.  The
+    percentage remains a raw value relative to the actual baseline; it is
+    omitted when that calculation is undefined or non-finite.
     """
-    reference = max(baseline, near_zero_seconds)
-    change = min((candidate - reference) / reference * 100, sys.float_info.max)
-    reported = baseline > near_zero_seconds
+    absolute_change = candidate - baseline
+    change: float | None = None
+    if baseline:
+        percentage = absolute_change / baseline * 100
+        if math.isfinite(percentage):
+            change = percentage
+    allowed_delta = max(
+        absolute_floor_seconds, baseline * (threshold_percent / 100)
+    )
     return ComparisonResult(
         fullname=fullname,
         baseline=baseline,
         candidate=candidate,
-        change_percent=change if reported else None,
-        regression=_beyond(change, threshold_percent),
-        speedup=reported and _beyond(-change, threshold_percent),
+        change_percent=change,
+        regression=_beyond(absolute_change, allowed_delta),
+        speedup=_beyond(-absolute_change, allowed_delta),
     )
 
 
@@ -133,7 +136,7 @@ def _report(
     baseline: TestSetCollection | None,
     candidate: TestSetCollection | None,
     threshold_percent: float,
-    near_zero_seconds: float,
+    absolute_floor_seconds: float,
 ) -> ComparisonReport:
     status: ComparisonStatus = "compared"
     baseline_cases: dict[str, NormalizedCase] = {}
@@ -150,7 +153,7 @@ def _report(
         comparison_target=key[1],
         status=status,
         threshold_percent=threshold_percent,
-        near_zero_seconds=near_zero_seconds,
+        absolute_floor_seconds=absolute_floor_seconds,
         baseline_execution_ids=_execution_ids(baseline),
         candidate_execution_ids=_execution_ids(candidate),
         baseline_only=[name for name in baseline_cases if name not in candidate_cases],
@@ -161,7 +164,7 @@ def _report(
                 case_median(baseline_cases[name]),
                 case_median(case),
                 threshold_percent,
-                near_zero_seconds,
+                absolute_floor_seconds,
             )
             for name, case in candidate_cases.items()
             if name in baseline_cases
@@ -174,7 +177,7 @@ def compare_collections(
     candidate: Iterable[TestSetCollection],
     *,
     threshold_percent: float = DEFAULT_THRESHOLD_PERCENT,
-    near_zero_seconds: float = DEFAULT_NEAR_ZERO_SECONDS,
+    absolute_floor_seconds: float = DEFAULT_ABSOLUTE_FLOOR_SECONDS,
 ) -> list[ComparisonReport]:
     """
     Compare the `candidate` collections with the `baseline` collections.
@@ -185,13 +188,12 @@ def compare_collections(
     benchmarks both
     sides hold are compared by their aggregated medians.  A benchmark is a
     regression if the candidate is slower than the baseline by more than
-    `threshold_percent` percent.  A baseline not greater than
-    `near_zero_seconds` is too close to zero for a meaningful percentage: the
-    benchmark is compared as if the baseline was `near_zero_seconds`, and its
-    change is ``None``.  So a candidate not slower than `near_zero_seconds` is
-    never a regression.  A benchmark is a speedup if the candidate is faster
-    than the baseline by more than `threshold_percent` percent and its change
-    is not ``None``.  Speedups are reported, but never fail a comparison.
+    `threshold_percent` percent and by more than `absolute_floor_seconds`.
+    The allowed difference is the larger of the absolute floor and the
+    percentage of the baseline.  A percentage is reported relative to the raw
+    baseline, except that it is ``None`` when the baseline is zero or the
+    calculation is non-finite.  A benchmark can likewise be a speedup when it
+    is faster beyond that same limit.
 
     Returns one `ComparisonReport` per test set and comparison target of either
     side: those of the candidate in its order, then those of the baseline only.
@@ -203,13 +205,13 @@ def compare_collections(
     platform, and attributes are not compared.
 
     Raises a `ValueError` if `threshold_percent` is negative or
-    `near_zero_seconds` not positive, or either is not finite.  Raises an
+    `absolute_floor_seconds` not positive, or either is not finite.  Raises an
     `ArtifactError` listing every problem of both sides: a test set occurring
     twice in a side, a runner execution lacking a benchmark another runner
     execution of its test set holds, and a benchmark document which cannot be
     normalized.  Each problem is prefixed with ``history`` or ``candidate``.
     """
-    _check_parameters(threshold_percent, near_zero_seconds)
+    _check_parameters(threshold_percent, absolute_floor_seconds)
     problems: list[str] = []
     baselines = _by_key(baseline, "history", problems)
     candidates = _by_key(candidate, "candidate", problems)
@@ -222,7 +224,7 @@ def compare_collections(
             baselines.get(key),
             candidates.get(key),
             threshold_percent,
-            near_zero_seconds,
+            absolute_floor_seconds,
         )
         for key in keys
     ]
@@ -233,7 +235,7 @@ def compare_with_history(
     history_root: Path = DEFAULT_HISTORY_ROOT,
     *,
     threshold_percent: float = DEFAULT_THRESHOLD_PERCENT,
-    near_zero_seconds: float = DEFAULT_NEAR_ZERO_SECONDS,
+    absolute_floor_seconds: float = DEFAULT_ABSOLUTE_FLOOR_SECONDS,
 ) -> list[ComparisonReport]:
     """
     Compare the runner artifacts in `artifacts_dir` with the history.
@@ -249,19 +251,19 @@ def compare_with_history(
     """
     # compare_collections checks the parameters as well, but only after the
     # artifacts and the history were read.
-    _check_parameters(threshold_percent, near_zero_seconds)
+    _check_parameters(threshold_percent, absolute_floor_seconds)
     candidate = collect_candidates(artifacts_dir)
     baseline = load_history(history_root)
     return compare_collections(
         baseline,
         candidate,
         threshold_percent=threshold_percent,
-        near_zero_seconds=near_zero_seconds,
+        absolute_floor_seconds=absolute_floor_seconds,
     )
 
 
 __all__ = [
-    "DEFAULT_NEAR_ZERO_SECONDS",
+    "DEFAULT_ABSOLUTE_FLOOR_SECONDS",
     "DEFAULT_THRESHOLD_PERCENT",
     "compare_collections",
     "compare_with_history",

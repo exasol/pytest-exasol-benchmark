@@ -37,15 +37,15 @@ from .models import (
 _IDENTIFIER = TypeAdapter(Identifier)
 _REPORTS = TypeAdapter(list[ComparisonReport])
 
-# The exit status of a comparison which found a regression.
-_REGRESSION_EXIT_CODE = 1
+# The exit status of a comparison which found an excessive difference.
+_COMPARISON_FAILURE_EXIT_CODE = 1
 
 
 class _CommandError(click.ClickException):
     """A command could not be done, for example because of invalid input.
 
     Every command exits with the same status for it, which differs from that of
-    a comparison finding a regression.
+    a comparison finding an excessive difference.
     """
 
     exit_code = 2
@@ -175,7 +175,7 @@ def _format_result(result: ComparisonResult) -> str:
     baseline and candidate timings, and the benchmark's fullname.
     """
     change = result.change_percent
-    # No percentage for a baseline too close to zero, even for a regression.
+    # No percentage for a zero baseline or a non-finite calculation.
     text = "n/a" if change is None else f"{change:+.1f} %"
     return (
         f"    {text:>9}  {_seconds(result.baseline)} ->"
@@ -189,7 +189,7 @@ def _format_report(report: ComparisonReport) -> list[str]:
 
     A test set held by one side only is described by a single line.  For a
     compared one, a header is followed by sections for the regressions, the
-    speedups, the results within the threshold, and the benchmarks held by one
+    speedups, the results within the tolerance, and the benchmarks held by one
     side only; empty sections are left out.
     """
     name = (
@@ -214,8 +214,8 @@ def _format_report(report: ComparisonReport) -> list[str]:
     within = [r for r in report.results if not (r.regression or r.speedup)]
     for title, results in (
         (f"Regressions, slower by more than {threshold}:", report.regressions),
-        (f"Speedups, faster by more than {threshold}:", report.speedups),
-        ("Within the threshold:", within),
+        (f"Suspicious speedups, faster by more than {threshold}:", report.speedups),
+        ("Within the tolerance:", within),
     ):
         if results:
             lines.append(f"  {title}")
@@ -234,7 +234,7 @@ def _summary(reports: list[ComparisonReport]) -> str:
     """
     One line counting the results of all `reports` by outcome.
 
-    Regressions, speedups, and results within the threshold are always
+    Regressions, speedups, and results within the tolerance are always
     counted.  Benchmarks and test sets held by one side only are counted if
     there are any.
     """
@@ -252,7 +252,7 @@ def _summary(reports: list[ComparisonReport]) -> str:
     parts = [
         _plural(regressions, "regression"),
         _plural(speedups, "speedup"),
-        f"{count('results') - regressions - speedups} within the threshold",
+        f"{count('results') - regressions - speedups} within the tolerance",
     ]
     for number, text in (
         (count("candidate_only"), "only in the candidate"),
@@ -279,8 +279,8 @@ def _summary(reports: list[ComparisonReport]) -> str:
     type=click.FloatRange(min=0),
     callback=_validate_finite,
     help=(
-        "Change in percent: a benchmark slower by more than it is a regression,"
-        " one faster by more than it a speedup."
+        "Change in percent: a benchmark slower or faster beyond the tolerance"
+        " is a comparison failure."
     ),
 )
 @click.option(
@@ -303,15 +303,15 @@ def compare(
 
     Compares the downloaded runner artifacts in ARTIFACTS_DIR with the
     benchmark history of the current checkout and prints a report per test
-    set, listing regressions and speedups separately.  Nothing is written to
-    the history.
+    set, listing regressions and suspicious speedups separately.  Nothing is
+    written to the history.
 
-    Exits with 0 if no benchmark is a regression, with 1 if one is, and with 2,
-    like the other commands, if the comparison could not be done, for example
-    because of invalid input or because the history holds none of the test
-    sets of the artifacts.
+    Exits with 0 if no benchmark exceeds the tolerance, with 1 if a slowdown
+    or speedup does, and with 2, like the other commands, if the comparison
+    could not be done, for example because of invalid input or because the
+    history holds none of the test sets of the artifacts.
     Test sets and benchmarks held by one side only are reported, but do not
-    fail the comparison, nor do speedups.
+    fail the comparison.
     """
     if json_output is not None:
         # A failed comparison must not leave the reports of an earlier one.
@@ -332,7 +332,7 @@ def compare(
         # status 1 would report it as a regression.
         raise _CommandError(f"cannot compare: {_os_message(error)}") from error
     if not any(report.status == "compared" for report in reports):
-        # Without a compared test set nothing can be a regression, so passing
+        # Without a compared test set nothing can exceed the tolerance, so passing
         # would hide a mistyped --history-root, test set ID, or comparison
         # target, or a checkout without the history.
         raise _CommandError(
@@ -351,8 +351,8 @@ def compare(
     for report in reports:
         click.echo("\n".join(_format_report(report)))
     click.echo(_summary(reports))
-    if any(report.regressions for report in reports):
-        ctx.exit(_REGRESSION_EXIT_CODE)
+    if any(report.regressions or report.speedups for report in reports):
+        ctx.exit(_COMPARISON_FAILURE_EXIT_CODE)
 
 
 @main.command()

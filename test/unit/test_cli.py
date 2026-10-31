@@ -308,9 +308,9 @@ def test_compare_reports_all_outcomes(run, store, add_runs, artifacts_dir):
         " executions with 3 of the candidate",
         "  Regressions, slower by more than 10 %:",
         f"      +40.0 %  1 s -> 1.4 s  {A}",
-        "  Speedups, faster by more than 10 %:",
+        "  Suspicious speedups, faster by more than 10 %:",
         f"      -40.0 %  2 s -> 1.2 s  {B}",
-        "  Within the threshold:",
+        "  Within the tolerance:",
         f"       +0.0 %  3 s -> 3 s  {C}",
         "  Only in the candidate:",
         "    test/bench.py::test_new",
@@ -318,21 +318,21 @@ def test_compare_reports_all_outcomes(run, store, add_runs, artifacts_dir):
         "    test/bench.py::test_old",
         "Test set gone of comparison target main: not in the candidate, nothing"
         " compared",
-        "Summary: 1 regression, 1 speedup, 1 within the threshold, 1 benchmark only"
+        "Summary: 1 regression, 1 speedup, 1 within the tolerance, 1 benchmark only"
         " in the candidate, 1 benchmark only in the history, 1 test set not in the"
         " history, 1 test set not in the candidate",
     ]
 
 
-def test_compare_succeeds_without_regression(run, store, add_runs, artifacts_dir):
+def test_compare_fails_for_suspicious_speedup(run, store, add_runs, artifacts_dir):
     store({"run-1": {A: 1.0, B: 1.0}})
     add_runs(artifacts_dir, {"run-1": {A: 1.05, B: 0.5}})
     result = run("compare", str(artifacts_dir))
-    assert result.exit_code == 0, result.output
-    assert "Speedups, faster by more than 10 %:" in result.output
+    assert result.exit_code == 1, result.output
+    assert "Suspicious speedups, faster by more than 10 %:" in result.output
     assert "Regressions" not in result.output
     assert result.output.splitlines()[-1] == (
-        "Summary: 0 regressions, 1 speedup, 1 within the threshold"
+        "Summary: 0 regressions, 1 speedup, 1 within the tolerance"
     )
 
 
@@ -340,7 +340,7 @@ def test_compare_succeeds_without_regression(run, store, add_runs, artifacts_dir
     "threshold, exit_code, title",
     [
         ("19", 1, "Regressions, slower by more than 19 %:"),
-        ("20", 0, "Within the threshold:"),
+        ("20", 0, "Within the tolerance:"),
         ("2.5", 1, "Regressions, slower by more than 2.5 %:"),
     ],
 )
@@ -354,17 +354,17 @@ def test_compare_threshold(  # pylint: disable=too-many-arguments,too-many-posit
     assert f"  {title}" in result.output.splitlines()
 
 
-def test_compare_reports_regression_of_near_zero_baseline(
+def test_compare_reports_regression_of_zero_baseline(
     run, store, add_runs, artifacts_dir
 ):
-    """A baseline too close to zero has no percentage, even for a regression."""
-    store({"run-1": {A: 0.0005}})
+    """A zero baseline has no percentage, even for a regression."""
+    store({"run-1": {A: 0.0}})
     add_runs(artifacts_dir, {"run-1": {A: 0.002}})
     result = run("compare", str(artifacts_dir))
     assert result.exit_code == 1, result.output
     assert result.output.splitlines()[1:3] == [
         "  Regressions, slower by more than 10 %:",
-        f"          n/a  0.0005 s -> 0.002 s  {A}",
+        f"          n/a  0 s -> 0.002 s  {A}",
     ]
 
 

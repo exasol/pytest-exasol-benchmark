@@ -291,20 +291,17 @@ the candidate.
 
 The benchmarks both sides of a test set hold are compared.  The change of a
 benchmark is ``(candidate - baseline) / baseline * 100`` percent, negative for
-a speedup.  It is a regression if the change is greater than the threshold,
-``10`` percent by default; a change equal to the threshold within rounding is
-not.  A baseline not greater than ``near_zero_seconds``, one millisecond by
-default, is too close to zero for a meaningful percentage: the benchmark is
-compared as if the baseline was ``near_zero_seconds``, and its
-``change_percent`` is ``None``.  So a candidate not slower than
-``near_zero_seconds`` is never a regression, and timings varying around it
-are compared with the threshold like any others.
+a speedup.  It is ``None`` when the baseline is zero or the calculation is
+non-finite.  A difference is allowed when its magnitude is at most the larger
+of ``absolute_floor_seconds`` (one millisecond by default) and the baseline
+times the threshold (``10`` percent by default).  Differences exactly at that
+limit, including ordinary floating-point rounding at a percentage boundary,
+are allowed.
 
 A benchmark faster by more than the threshold is a *speedup*, flagged by
 ``speedup`` and listed by the report's ``speedups``.  It is the counterpart of
-a regression, but never fails a comparison.  Only a benchmark with a
-``change_percent`` can be a speedup: compared with ``near_zero_seconds``, an
-unchanged baseline below it would look faster.
+a regression and likewise fails a comparison.  It can be reported even when
+``change_percent`` is ``None``.
 
 There is one ``ComparisonReport`` per test set and comparison target of either
 side.  Its ``status`` tells whether the test set was compared:

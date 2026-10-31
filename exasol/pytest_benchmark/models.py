@@ -302,8 +302,8 @@ class ComparisonResult(Model):
     ``baseline`` and ``candidate`` are the median round timings of the case in
     seconds, each aggregated over the runner executions of its side.
     ``change_percent`` is the slowdown of the candidate relative to the
-    baseline, negative for a speedup, and ``None`` if the baseline is too close
-    to zero for a meaningful percentage, see
+    baseline, negative for a speedup, and ``None`` if the percentage is
+    undefined or non-finite, see
     :func:`~exasol.pytest_benchmark.comparison.compare_collections`.
     ``regression`` tells whether the candidate is slower than the report
     allows, ``speedup`` whether it is faster by more than the report's
@@ -357,7 +357,7 @@ class ComparisonReport(Model):
     comparison_target: Identifier
     status: ComparisonStatus
     threshold_percent: float = Field(ge=0, allow_inf_nan=False)
-    near_zero_seconds: float = Field(gt=0, allow_inf_nan=False)
+    absolute_floor_seconds: float = Field(gt=0, allow_inf_nan=False)
     baseline_execution_ids: list[Identifier] = Field(default_factory=list)
     candidate_execution_ids: list[Identifier] = Field(default_factory=list)
     baseline_only: list[str] = Field(default_factory=list)

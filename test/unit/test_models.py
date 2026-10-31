@@ -34,7 +34,7 @@ def make_comparison_report(**overrides):
         "comparison_target": "target",
         "status": "compared",
         "threshold_percent": 10.0,
-        "near_zero_seconds": 1e-6,
+        "absolute_floor_seconds": 1e-6,
         "baseline_execution_ids": ["run-1"],
         "candidate_execution_ids": ["run-1"],
     }
@@ -298,7 +298,7 @@ def test_comparison_report_rejects_a_benchmark_twice(field):
     [
         {"status": "unknown"},
         {"threshold_percent": -1.0},
-        {"near_zero_seconds": 0.0},
+        {"absolute_floor_seconds": 0.0},
         {"baseline_execution_ids": [".hidden"]},
     ],
 )

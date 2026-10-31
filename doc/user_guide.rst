@@ -353,15 +353,16 @@ the resulting JSON file.
     Compares the runner artifacts in a directory with the benchmark history of
     the current checkout (``--history-root``, default ``benchmark-history``)
     and prints one report per test set, see :doc:`benchmark-history` for how
-    the runner executions are aggregated and compared.  A benchmark slower
-    than ``--threshold`` percent (default ``10``) is a regression, one faster
-    by more than the threshold a speedup.  Regressions, speedups, and the
-    benchmarks within the threshold are listed in separate sections, followed
+    the runner executions are aggregated and compared.  A benchmark is a
+    regression when it is slower by more than both ``--threshold`` percent
+    (default ``10``) and the 0.001-second absolute floor; one faster beyond
+    the same limit is a suspicious speedup.  Regressions, speedups, and the
+    benchmarks within the tolerance are listed in separate sections, followed
     by the benchmarks and test sets held by one side only, and a summary.
-    ``n/a`` stands for a change which is not reported because the baseline is
-    too close to zero.  ``--json-output`` additionally writes the reports to a
-    file as a JSON list of ``ComparisonReport`` objects.  Nothing is written
-    to the history.
+    ``n/a`` stands for a change which is undefined because the baseline is
+    zero or the calculation is non-finite.  ``--json-output`` additionally
+    writes the reports to a file as a JSON list of ``ComparisonReport``
+    objects.  Nothing is written to the history.
 
     .. warning::
 
@@ -379,24 +380,24 @@ the resulting JSON file.
         Test set tpch-sf10 of comparison target onprem-standard: compared 3 history runner executions with 3 of the candidate
           Regressions, slower by more than 10 %:
               +20.0 %  1 s -> 1.2 s  tests/test_queries.py::test_select[10]
-          Speedups, faster by more than 10 %:
+          Suspicious speedups, faster by more than 10 %:
               -35.0 %  2 s -> 1.3 s  tests/test_queries.py::test_join[10]
-          Within the threshold:
+          Within the tolerance:
                +2.0 %  0.5 s -> 0.51 s  tests/test_queries.py::test_count[10]
           Only in the candidate:
             tests/test_queries.py::test_group_by[10]
-        Summary: 1 regression, 1 speedup, 1 within the threshold, 1 benchmark only in the candidate
+        Summary: 1 regression, 1 speedup, 1 within the tolerance, 1 benchmark only in the candidate
 
-    The exit status is ``0`` if no benchmark is a regression, ``1`` if one is,
-    and ``2`` if the comparison could not be done, for example because an
-    artifact or the history is invalid, or because the history holds none of
-    the test sets of the artifacts, for example because it is missing.
-    Without a compared test set nothing could be a regression, so a mistyped
-    ``--history-root``, test set ID, or comparison target would otherwise
-    pass.  For the first benchmark run of a project, use ``store`` instead to
-    create the history.  Speedups and data held by one side only, such as a new test
-    set added to an existing history or a removed benchmark, do not fail the
-    comparison.
+    The exit status is ``0`` if no benchmark exceeds the tolerance, ``1`` if a
+    regression or suspicious speedup does, and ``2`` if the comparison could
+    not be done, for example because an artifact or the history is invalid,
+    or because the history holds none of the test sets of the artifacts, for
+    example because it is missing.  Without a compared test set nothing could
+    exceed the tolerance, so a mistyped ``--history-root``, test set ID, or
+    comparison target would otherwise pass.  For the first benchmark run of a
+    project, use ``store`` instead to create the history.  Data held by one
+    side only, such as a new test set added to an existing history or a
+    removed benchmark, do not fail the comparison.
 
 ``store``
     Stores the runner artifacts in a directory as the benchmark history below
