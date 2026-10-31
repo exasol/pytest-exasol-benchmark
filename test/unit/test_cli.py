@@ -419,7 +419,9 @@ def test_compare_reports_file_system_error(run, add_runs, artifacts_dir, monkeyp
     def fail(*_args, **_kwargs):
         raise PermissionError(13, "Permission denied", "benchmark-history/.store")
 
-    monkeypatch.setattr("exasol.pytest_benchmark.cli.compare_with_history", fail)
+    monkeypatch.setattr(
+        "exasol.pytest_benchmark.cli_comparison.compare_with_history", fail
+    )
     add_runs(artifacts_dir, {"run-1": {A: 1.0}})
     result = run("compare", str(artifacts_dir))
     assert result.exit_code == 2
