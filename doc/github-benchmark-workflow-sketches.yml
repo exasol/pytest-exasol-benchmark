@@ -1,7 +1,10 @@
 # Sketches only: this file is intentionally outside .github/workflows so that
 # GitHub Actions does not execute it automatically.
 #
-# These examples assume the compare/store CLI implementation is released.
+# These are illustrative generated-workflow shapes, not an active workflow.
+# The matrix, benchmark command, test path, IDs, and setup steps are supplied
+# by the consuming repository's generator configuration. The example values
+# below are deliberately concrete so the required artifact flow is visible.
 
 name: benchmark workflow sketches
 

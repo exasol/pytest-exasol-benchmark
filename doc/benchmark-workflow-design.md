@@ -102,6 +102,21 @@ The consuming repository owns:
 - protected environment names;
 - optional repository-specific workflow steps.
 
+The generated workflow is therefore fixed in structure, but parameterized in
+these repository-specific values. The generator must not infer benchmark tests
+from the repository. A configuration file must explicitly provide at least:
+
+- matrix entries and runner execution-ID mapping;
+- the benchmark command and arguments;
+- test-set ID and comparison target;
+- protected environment names;
+- any project-specific setup steps or reusable actions.
+
+The generated benchmark job invokes the configured benchmark command. The
+default example is `pytest`, but the workflow template must not assume a
+specific test path such as `tests/benchmarks` unless the configuration supplies
+it.
+
 ## Workflow lifecycle
 
 ### 1. Benchmark matrix
