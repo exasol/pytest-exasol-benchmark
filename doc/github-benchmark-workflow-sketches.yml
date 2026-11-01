@@ -1,19 +1,20 @@
 # Sketches only: this file is intentionally outside .github/workflows.
 #
-# The three YAML documents are separate workflow files:
+# The four YAML documents are separate workflow files:
 #   1. benchmark-run.yml: consumer-controlled benchmark execution;
 #   2. benchmark-parent.yml: consumer-controlled composition and configuration;
 #   3. benchmark-orchestrator.yml: a checked-in, generated reusable artifact
 #      orchestration workflow.
 #
-# Generate the third file from explicit consumer configuration with:
+# Generate the orchestrator and workflow-check files from explicit consumer
+# configuration with:
 #
 #   python -m nox -s benchmark:generate-workflow -- \
 #     --config benchmark-workflow.json \
-#     --output .github/workflows/benchmark-orchestrator.yml
+#     --output-dir .github/workflows
 #
 # The benchmark-run and benchmark-parent workflows remain consumer-owned. The
-# package's benchmark:generate-example session generates all three files only
+# package's benchmark:generate-example session generates all four files only
 # inside the deterministic example-consumer fixture.
 #
 # Existing package CLIs are called directly. Nox is reserved for operations
@@ -231,3 +232,45 @@ jobs:
           --history-root "${{ inputs.history-root }}"
           --source-branch "${{ github.event.pull_request.head.ref }}"
           --commit-message "Update benchmark baseline"
+
+---
+
+# --- generated benchmark-workflow-check.yml ---------------------------------
+
+name: benchmark-workflow-check
+
+on:
+  pull_request:
+    paths:
+      - benchmark-workflow.json
+      - .github/workflows/benchmark-orchestrator.yml
+      - .github/workflows/benchmark-workflow-check.yml
+      - noxfile.py
+      - pyproject.toml
+  push:
+    paths:
+      - benchmark-workflow.json
+      - .github/workflows/benchmark-orchestrator.yml
+      - .github/workflows/benchmark-workflow-check.yml
+      - noxfile.py
+      - pyproject.toml
+
+jobs:
+  generated-workflows:
+    name: Check generated benchmark workflows
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: exasol/python-toolbox/.github/actions/python-environment@v10
+        with:
+          python-version: "3.12"
+          poetry-version: "2.3.0"
+      - run: poetry install --no-interaction
+      - name: Verify generated workflows are current
+        run: >-
+          poetry run nox -s benchmark:generate-workflow --
+          --config benchmark-workflow.json
+          --output-dir .github/workflows
+          --check

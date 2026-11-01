@@ -119,7 +119,7 @@ it.
 
 ## Workflow lifecycle
 
-The workflow is split into three separate files:
+The workflow is split into four separate files:
 
 1. `benchmark-run.yml` is consumer-controlled and runs the benchmark matrix,
    packages results with the package CLI, and uploads one artifact per runner.
@@ -127,12 +127,16 @@ The workflow is split into three separate files:
    project-specific inputs, and the artifact run identifier. It does not
    inspect artifacts or implement benchmark operations.
 3. `benchmark-orchestrator.yml` is a checked-in, generated reusable workflow.
-   The dedicated `benchmark:generate-workflow` session renders it from explicit
+   The dedicated `benchmark:generate-workflow` session renders it and the
+   workflow-check file from explicit
    consumer configuration. It provides Poetry/PTB-based orchestration: it
    provisions the project with the Python Toolbox environment action, runs
    commands through Poetry, checks base freshness, downloads artifacts, invokes
    the comparison and storage CLIs, applies approval, and invokes the guarded
    baseline Git session.
+4. `benchmark-workflow-check.yml` is a checked-in, generated validation
+   workflow. It reruns the generator in `--check` mode and fails when either
+   generated workflow is stale.
 
 ### 1. Benchmark matrix
 
@@ -275,18 +279,20 @@ does not replace an existing package CLI. The session should:
 Consumer workflow extension points, such as Exasol setup actions, remain
 consumer-owned. The package must not embed credentials or database secrets.
 
-The package provides `benchmark:generate-workflow` to generate only the
-reusable orchestrator workflow. It must:
+The package provides `benchmark:generate-workflow` to generate the reusable
+orchestrator and its freshness-check workflow. It must:
 
-- accept an explicit configuration path and output path;
+- accept an explicit configuration path and workflow output directory;
+- generate both `benchmark-orchestrator.yml` and
+  `benchmark-workflow-check.yml`;
 - validate identifiers, paths, environments, and action versions;
 - render deterministically and write atomically;
 - refuse to overwrite a modified output unless `--force` is supplied;
-- support `--check` for CI freshness validation;
+- support `--check` for CI freshness validation of both generated files;
 - validate the generated YAML and required job/action invariants.
 
 It does not generate the consumer's benchmark-run or parent workflow. The
-`benchmark:generate-example` session generates all three files only for the
+`benchmark:generate-example` session generates all four files only for the
 deterministic example-consumer fixture.
 
 The consumer repository’s Nox file remains small and owns only configuration
@@ -305,7 +311,7 @@ The orchestrator generator is invoked explicitly:
 ```bash
 python -m nox -s benchmark:generate-workflow -- \
   --config benchmark-workflow.json \
-  --output .github/workflows/benchmark-orchestrator.yml
+  --output-dir .github/workflows
 ```
 
 ### Packaging
@@ -345,7 +351,7 @@ The initial reusable sessions should be:
 | `benchmark:check-base` | Verify the recorded PR base SHA when no equivalent CLI is available | No |
 | `benchmark:provenance` | Generate/validate GitHub provenance input when no equivalent CLI is available | No |
 | `benchmark:commit-baseline` | Commit and push validated history to the PR source branch | Yes, guarded |
-| `benchmark:generate-workflow` | Generate/check the reusable orchestrator workflow | Orchestrator file |
+| `benchmark:generate-workflow` | Generate/check the orchestrator and workflow-check workflows | Workflow files |
 | `benchmark:generate-example` | Generate and validate the example consumer fixture | Yes, fixture output |
 
 The following operations use the released command-line interfaces directly and
@@ -441,7 +447,7 @@ Tasks are intentionally sized so each produces a reviewable change.
       tree.
 
 8. Add the deterministic `benchmark:generate-workflow` session.
-    - Generate only the reusable orchestrator workflow.
+    - Generate the reusable orchestrator and workflow-check workflows.
     - Validate configuration, YAML, and required workflow invariants.
     - Support deterministic output, `--check`, and modified-file protection.
 
