@@ -496,6 +496,33 @@ Tasks are intentionally sized so each produces a reviewable change.
 18. Add a release note and migration guidance for repositories currently using
     the direct CLI commands.
 
+## Issue decomposition
+
+The implementation is tracked as one overview issue with focused child
+tickets. The child boundaries intentionally follow individual Nox sessions and
+individual workflow files so that each ticket has one primary implementation
+contract.
+
+| Workstream | Child ticket scope |
+| --- | --- |
+| Provenance | Provenance model, packaging input, tree/configuration hashes, history exclusion, and tests |
+| Nox infrastructure | Optional dependency, public registration helper, and consumer discovery |
+| `benchmark:check-base` | Current pull-request base lookup and stale-base failure |
+| `benchmark:provenance` | Provenance generation and validation session |
+| `benchmark:commit-baseline` | History-only Git commit and source-branch push safeguards |
+| `benchmark:generate-workflow` | Generate/check the orchestrator and workflow-check workflows |
+| `benchmark:generate-example` | Generate and validate the complete example consumer |
+| `benchmark-run.yml` | Consumer-owned benchmark matrix, packaging, and artifact upload |
+| `benchmark-parent.yml` | Consumer-owned composition and configuration forwarding |
+| `benchmark-orchestrator.yml` | Poetry/PTB orchestration, comparison, approval, storage, and promotion |
+| `benchmark-workflow-check.yml` | CI freshness check for generated workflow files |
+| Documentation/release | Consumer guidance, governance, package inclusion, and release migration |
+
+The existing comparison and history-storage CLI work in issue #19 is a
+dependency of the orchestrator ticket and is not duplicated. Issue #20's
+no-workflow constraint is superseded by this design and should be handled
+separately when the issue hierarchy is created.
+
 ## Suggested implementation order
 
 ```text
