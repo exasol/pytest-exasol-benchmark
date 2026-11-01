@@ -9,10 +9,11 @@ accepted baseline is written back to the same pull request, and how the
 workflow logic is exposed through reusable Nox sessions in the released
 `pytest-exasol-benchmark` package.
 
-The package provides reusable workflow templates and Nox sessions that render
-them. Repository-specific configuration remains explicit in the consuming
-repository; the generator does not discover or silently modify project
-configuration.
+The package provides reusable workflow operations and a deterministic example
+generator. Nox is used only where the package does not already provide a
+command-line interface. Repository-specific configuration remains explicit in
+the consuming repository; the generator does not discover or silently modify
+project configuration.
 
 ## Goals
 
@@ -39,8 +40,8 @@ configuration.
 
 The Python APIs for artifacts, history, normalization, and comparison exist,
 and this design assumes the `compare` and `store` CLI commands are complete and
-released. Workflows should call those CLIs directly rather than adding Nox
-wrappers around them.
+released. Workflows call those CLIs directly. Nox must not wrap an operation
+when a released CLI already provides that operation.
 
 The current `package` command also does not accept arbitrary manifest
 attributes. Provenance metadata must be added either through a new package CLI
@@ -49,28 +50,25 @@ option or by a Python-level packaging API.
 ## Proposed architecture
 
 ```text
-Nox workflow-generation session
+consumer benchmark-run workflow
         |
         v
-generated GitHub Actions workflow
-        |
-        v
-GitHub Actions workflow
+GitHub orchestration workflow
         |
         +--> pytest CLI
         +--> pytest-exasol-benchmark package CLI
-        +--> artifact and history APIs
+        +--> Nox-only base/provenance/Git sessions
 ```
 
-The workflow generator owns the stable workflow structure:
+The consumer workflow owns the stable workflow structure:
 
 - benchmark matrix job structure;
 - artifact transport;
 - comparison and baseline-update job dependencies;
 - permissions and protected-environment hooks;
-- provenance and base-freshness wiring.
+- calls to direct package CLIs and Nox-only sessions.
 
-The generated workflow still owns GitHub concerns at runtime:
+The workflow still owns GitHub concerns at runtime:
 
 - matrix definition;
 - artifact upload/download;
@@ -89,9 +87,10 @@ The package CLI and APIs own benchmark concerns:
 
 Nox owns only concerns where no suitable CLI exists:
 
-- rendering and checking workflow templates;
 - checking that the benchmark base is still current;
-- assembling GitHub provenance metadata before calling the package CLI.
+- assembling GitHub provenance metadata before calling the package CLI;
+- guarded Git commit/push orchestration;
+- generating and validating the example consumer fixture.
 
 The consuming repository owns:
 
@@ -102,9 +101,9 @@ The consuming repository owns:
 - protected environment names;
 - optional repository-specific workflow steps.
 
-The generated workflow is therefore fixed in structure, but parameterized in
-these repository-specific values. The generator must not infer benchmark tests
-from the repository. A configuration file must explicitly provide at least:
+The consumer workflow is therefore explicit and parameterized in these
+repository-specific values. The package must not infer benchmark tests from the
+repository. A configuration file must explicitly provide at least:
 
 - matrix entries and runner execution-ID mapping;
 - the benchmark command and arguments;
@@ -118,6 +117,19 @@ specific test path such as `tests/benchmarks` unless the configuration supplies
 it.
 
 ## Workflow lifecycle
+
+The workflow is split into three separate files:
+
+1. `benchmark-run.yml` is consumer-controlled and runs the benchmark matrix,
+   packages results with the package CLI, and uploads one artifact per runner.
+2. `benchmark-parent.yml` is consumer-controlled and supplies the matrix,
+   project-specific inputs, and the artifact run identifier. It does not
+   inspect artifacts or implement benchmark operations.
+3. `benchmark-orchestrator.yml` is reusable Poetry/PTB-based orchestration. It
+   provisions the project with the Python Toolbox environment action, runs
+   commands through Poetry, checks base freshness, downloads artifacts, invokes
+   the comparison and storage CLIs, applies approval, and invokes the guarded
+   baseline Git session.
 
 ### 1. Benchmark matrix
 
@@ -136,7 +148,7 @@ The output path should be explicit and temporary, for example:
 
 ```bash
 pytest --benchmark-json="$RUNNER_TEMP/benchmark/output.json"
-poetry run nox -s benchmark:package -- \
+pytest-exasol-benchmark package \
   --benchmark-json "$RUNNER_TEMP/benchmark/output.json" \
   --runner-execution-id "$RUNNER_ID"
 ```
@@ -146,6 +158,9 @@ poetry run nox -s benchmark:package -- \
 A comparison job downloads all runner artifacts side-by-side. It must not use
 `merge-multiple: true`, because `collect_candidates()` expects one artifact
 per subdirectory.
+
+The job invokes the released `pytest-exasol-benchmark compare` CLI directly;
+there is no redundant `benchmark:compare` Nox session.
 
 The comparison job records three outcomes:
 
@@ -177,7 +192,9 @@ native setting protects the merge result.
 
 ### 4. Manual acceptance and baseline update
 
-The baseline-update job is a required protected-environment job. It:
+The baseline-update job is a required protected-environment job. It invokes the
+released `pytest-exasol-benchmark store` CLI for history storage, then uses the
+Nox-only guarded Git session for the commit and push. It:
 
 1. waits for configured reviewers;
 2. checks out the source branch of the pull request;
@@ -236,30 +253,24 @@ is required for audit purposes, a post-merge job may add it later as
 
 ## Reusable released-package Nox API
 
-### Workflow generation
+### Nox-only operations
 
-The released package should expose workflow-generation sessions, for example:
+The released package should expose Nox-only sessions, for example:
 
 ```bash
-poetry run nox -s benchmark:workflow -- \
-  --output .github/workflows/benchmark.yml \
-  --config benchmark-workflow.yml
+poetry run nox -s benchmark:check-base
 ```
 
-The session renders a versioned template shipped in the Python package. It
-must not generate arbitrary Python or execute the benchmark. It should:
+The session must not generate arbitrary Python or execute the benchmark. Nox
+does not replace an existing package CLI. The session should:
 
 - validate the configuration before writing anything;
-- render deterministically;
-- write atomically;
-- refuse to overwrite a modified generated file unless `--force` is supplied;
-- include the package/template version in a generated-file header;
-- support a check mode that exits nonzero when the checked-in workflow is stale;
-- validate the resulting YAML and required job/action invariants.
+- emit deterministic, machine-readable output;
+- validate its inputs before writing anything;
+- write output atomically where it creates an output file.
 
-The generated workflow should contain clearly marked extension points for
-repository-specific setup, for example an `exasol_setup` step block supplied
-by configuration. Templates must not embed credentials or database secrets.
+Consumer workflow extension points, such as Exasol setup actions, remain
+consumer-owned. The package must not embed credentials or database secrets.
 
 The consumer repository’s Nox file remains small and owns only configuration
 for the Nox-only operations:
@@ -268,13 +279,9 @@ for the Nox-only operations:
 from exasol.pytest_benchmark.nox import benchmark_sessions
 
 benchmark_sessions(
-    workflow_config="benchmark-workflow.yml",
-    workflow_output=".github/workflows/benchmark.yml",
+    history_root="benchmark-history",
 )
 ```
-
-The checked-in generated workflow is an auditable build artifact. Pull
-requests update it by running the generator and reviewing the resulting YAML.
 
 ### Packaging
 
@@ -300,9 +307,8 @@ benchmark_sessions(
 )
 ```
 
-The exact registration API may instead expose individual functions, but the
-consumer must not copy the implementation into its repository. Existing CLIs
-remain the preferred interface for benchmark execution, packaging, comparison,
+The consumer must not copy the implementation into its repository. Existing
+CLIs are the required interface for benchmark execution, packaging, comparison,
 and storage.
 
 ### Required sessions
@@ -311,10 +317,10 @@ The initial reusable sessions should be:
 
 | Session | Responsibility | Writes repository state? |
 |---|---|---:|
-| `benchmark:workflow` | Render the reusable GitHub Actions workflow from configuration | Yes, generated workflow file |
-| `benchmark:workflow-check` | Verify the checked-in generated workflow is current and valid | No |
-| `benchmark:base-current` | Verify the recorded PR base SHA when no equivalent CLI is available | No |
+| `benchmark:check-base` | Verify the recorded PR base SHA when no equivalent CLI is available | No |
 | `benchmark:provenance` | Generate/validate GitHub provenance input when no equivalent CLI is available | No |
+| `benchmark:commit-baseline` | Commit and push validated history to the PR source branch | Yes, guarded |
+| `benchmark:generate-example` | Generate and validate the example consumer fixture | Yes, fixture output |
 
 The following operations use the released command-line interfaces directly and
 should not receive redundant Nox wrappers:
@@ -323,6 +329,9 @@ should not receive redundant Nox wrappers:
 - `pytest-exasol-benchmark package`;
 - `pytest-exasol-benchmark compare`;
 - `pytest-exasol-benchmark store`.
+
+These commands must be called directly by workflows; no redundant Nox wrapper
+is added for them.
 
 Sessions should be composable. A workflow can call a single session for a
 simple repository or call the sessions separately when database setup and
@@ -333,17 +342,12 @@ artifact transport require custom steps.
 Sessions should accept explicit command-line options and environment variables,
 not repository-specific hard-coded paths. At minimum:
 
-- benchmark command or pytest arguments;
-- benchmark JSON path;
-- artifact output path;
 - artifacts input directory;
-- test-set ID;
-- comparison target;
-- runner execution ID;
-- source and base revision metadata;
 - history root;
 - threshold;
-- optional provenance JSON path.
+- expected base metadata;
+- provenance input and output paths;
+- source branch and commit message for the guarded Git operation.
 
 Environment variables are appropriate for GitHub metadata, but every value
 must also have a deterministic CLI equivalent for local use and testing.
@@ -398,7 +402,7 @@ Tasks are intentionally sized so each produces a reviewable change.
    - Keep core imports independent of Nox.
    - Define the supported public session-registration API.
 
-6. Implement `benchmark:base-current` and `benchmark:provenance` only for
+6. Implement `benchmark:check-base` and `benchmark:provenance` only for
    functionality not exposed by the package CLI.
    - Distinguish stale-base failure from invalid input.
    - Emit machine-readable output for workflow conditions.
@@ -410,16 +414,10 @@ Tasks are intentionally sized so each produces a reviewable change.
     - Verify the sessions are discoverable and reusable outside this source
       tree.
 
-8. Add packaged workflow templates and configuration models.
-    - Define the supported configuration schema.
-    - Include templates in the wheel and source distribution.
-    - Validate identifiers, paths, environment names, and action versions.
-
-9. Implement `benchmark:workflow` and `benchmark:workflow-check`.
-    - Deterministic rendering.
-    - Atomic writes and modified-file protection.
-    - YAML parsing and invariant checks.
-    - Golden-file tests for the generated workflows.
+8. Add the deterministic `benchmark:generate-example` session.
+    - Generate the complete consumer fixture.
+    - Validate generated YAML and required workflow invariants.
+    - Test stable contents and artifact directory layout.
 
 ### C. Build the GitHub workflow
 
@@ -449,8 +447,8 @@ Tasks are intentionally sized so each produces a reviewable change.
 
 ### D. Documentation and release quality
 
-15. Document the consumer `noxfile.py` integration, generator configuration,
-    and all session options.
+15. Document the consumer `noxfile.py` integration, direct CLI workflow steps,
+    and all Nox-only session options.
 
 16. Document GitHub environment reviewers, required checks, branch protection,
     and merge queue behavior.
@@ -466,7 +464,7 @@ Tasks are intentionally sized so each produces a reviewable change.
 ```text
 A1-A4  provenance
    |
-C5-C9 reusable Nox-only sessions and workflow generation
+C5-C9 reusable Nox-only sessions and example generation
    |
 C10-C14 GitHub workflow
    |
@@ -483,8 +481,7 @@ from the start.
 - A repository can install `pytest-exasol-benchmark[nox]`, import the public
   Nox-only session API from its own `noxfile.py`, and run the sessions without
   copying implementation code.
-- A repository can render its benchmark workflow from a versioned package
-  template and detect stale generated output in CI.
+- A repository can generate and validate the complete example consumer fixture.
 - A PR benchmark stores the exact PR head, target base, source tree, and
   workflow provenance.
 - A target-branch advance invalidates the benchmark result.

@@ -1,49 +1,62 @@
-# Sketches only: this file is intentionally outside .github/workflows so that
-# GitHub Actions does not execute it automatically.
+# Sketches only: this file is intentionally outside .github/workflows.
 #
-# These are illustrative generated-workflow shapes, not an active workflow.
-# The matrix, benchmark command, test path, IDs, and setup steps are supplied
-# by the consuming repository's generator configuration. The example values
-# below are deliberately concrete so the required artifact flow is visible.
+# The three YAML documents are separate workflow files:
+#   1. benchmark-run.yml: consumer-controlled benchmark execution;
+#   2. benchmark-parent.yml: consumer-controlled composition and configuration;
+#   3. benchmark-orchestrator.yml: reusable artifact orchestration.
+#
+# Existing package CLIs are called directly. Nox is reserved for operations
+# without a package CLI: provenance, base freshness, and guarded Git updates.
 
-name: benchmark workflow sketches
+# --- benchmark-run.yml -------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# 1. Run the benchmark matrix and upload one packaged artifact per runner.
-# -----------------------------------------------------------------------------
+name: benchmark-run
+
+on:
+  workflow_call:
+    inputs:
+      matrix_json:
+        required: true
+        type: string
+    outputs:
+      artifact-run-id:
+        description: Run identifier containing uploaded runner artifacts.
+        value: ${{ jobs.benchmark.outputs.run_id }}
+      recorded-base-sha:
+        description: PR base SHA captured when benchmark execution started.
+        value: ${{ jobs.benchmark.outputs.base_sha }}
 
 jobs:
   benchmark:
     name: benchmark (${{ matrix.runner }})
     runs-on: ubuntu-24.04
+    outputs:
+      run_id: ${{ github.run_id }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
     strategy:
       fail-fast: false
-      matrix:
-        runner: [runner-1, runner-2, runner-3]
+      matrix: ${{ fromJson(inputs.matrix_json) }}
     permissions:
       contents: read
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install benchmark project
         run: pip install .
-
-      # Set up the Exasol connection and any benchmark data here.
-      # The query_func fixture must use the same connection/session as the
-      # exasol_benchmark fixture.
+      # Consumer-specific database/data setup belongs here.
       - name: Run benchmarks
         run: |
           mkdir -p "$RUNNER_TEMP/benchmark"
           pytest tests/benchmarks \
             --benchmark-json="$RUNNER_TEMP/benchmark/output.json"
-
-      # This step must not run with `if: always()`. A failed pytest run must
-      # not become a candidate artifact.
+      - name: Generate benchmark provenance
+        run: >-
+          python -m nox -s benchmark:provenance --
+          --output "$RUNNER_TEMP/benchmark/provenance.json"
+          --base-revision "${{ github.event.pull_request.base.sha }}"
+      # A failed pytest run must not become a candidate artifact.
       - name: Package runner artifact
         run: |
           pytest-exasol-benchmark package \
@@ -52,145 +65,158 @@ jobs:
             --comparison-target onprem-standard \
             --runner-execution-id "${{ matrix.runner }}" \
             --source-revision "${GITHUB_SHA}" \
+            --provenance-json "$RUNNER_TEMP/benchmark/provenance.json" \
             --output-dir "$RUNNER_TEMP/benchmark/artifact"
-
       - name: Upload runner artifact
         uses: actions/upload-artifact@v4
         with:
-          # The name is only for transport. The manifest is the source of
-          # identity, so the names do not need to match runner_execution_id.
           name: benchmark-${{ matrix.runner }}
           path: ${{ runner.temp }}/benchmark/artifact
           if-no-files-found: error
 
-# -----------------------------------------------------------------------------
-# 2. Download all runner artifacts side-by-side and compare with the checked-in
-#    benchmark-history baseline.
-# -----------------------------------------------------------------------------
+---
 
-  compare:
-    name: compare benchmark results
-    needs: benchmark
-    runs-on: ubuntu-24.04
+# --- benchmark-parent.yml ---------------------------------------------------
+
+name: benchmark-parent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  benchmark-run:
+    uses: ./.github/workflows/benchmark-run.yml
+    with:
+      matrix_json: '{"runner":["runner-1","runner-2","runner-3"]}'
     permissions:
       contents: read
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install benchmark project
-        run: pip install .
-
-      - name: Download runner artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          # Do not set `name` or `merge-multiple`: each artifact must remain in
-          # its own subdirectory for collect_candidates/store_history.
-
-      - name: Compare with history
-        id: compare
-        shell: bash
-        run: |
-          set +e
-          pytest-exasol-benchmark compare artifacts \
-            --history-root benchmark-history \
-            --threshold 10 \
-            --json-output comparison-reports.json
-          status=$?
-          set -e
-
-          # Exit 2 means the comparison could not be performed and must fail
-          # this required check. Exit 1 means an actual regression; keep the
-          # check green so the separate approval gate can handle it.
-          if [ "$status" -eq 2 ]; then
-            exit 2
-          fi
-          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
-            exit "$status"
-          fi
-          if [ "$status" -eq 1 ]; then
-            regressions=$(jq '[.[].results[] | select(.regression == true)] | length' comparison-reports.json)
-          else
-            regressions=0
-          fi
-          echo "regressions=$regressions" >> "$GITHUB_OUTPUT"
-
-      - name: Upload comparison report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-comparison-report
-          path: comparison-reports.json
-          if-no-files-found: ignore
-
-# -----------------------------------------------------------------------------
-# 3. Optional baseline update. Run this only after explicit approval. The job
-#    commits benchmark-history back onto the source PR branch, so the original
-#    PR contains both the code change and its accepted baseline. It never pushes
-#    directly to the protected default branch. Storing a partial matrix replaces
-#    the complete stored subtree for the affected test set.
-# -----------------------------------------------------------------------------
-
-  store-baseline:
-    name: store accepted benchmark baseline
-    needs: compare
-    # Restrict this to trusted, same-repository PRs if the workflow is also
-    # used for fork contributions. A privileged workflow_dispatch or
-    # workflow_run workflow is safer for fork PRs because their token cannot
-    # write repository contents or create pull requests.
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.compare.result == 'success'
-    runs-on: ubuntu-24.04
-    # Configure this environment in repository settings with required
-    # reviewers. The job pauses here until a reviewer approves the baseline
-    # update, including any intentional performance regression.
-    environment:
-      name: benchmark-baseline-approval
+  # The parent passes workflow-level inputs only. It does not inspect artifacts
+  # or implement comparison, storage, approval, or Git operations.
+  orchestrate:
+    needs: benchmark-run
+    uses: ./.github/workflows/benchmark-orchestrator.yml
+    with:
+      artifact-run-id: ${{ needs.benchmark-run.outputs.artifact-run-id }}
+      expected-base-sha: ${{ needs.benchmark-run.outputs.recorded-base-sha }}
+      history-root: benchmark-history
+      threshold: 10
+    secrets: inherit
     permissions:
       contents: write
-      pull-requests: write
+      pull-requests: read
 
+---
+
+# --- benchmark-orchestrator.yml ---------------------------------------------
+
+name: benchmark-orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      artifact-run-id:
+        required: true
+        type: string
+      expected-base-sha:
+        required: true
+        type: string
+      history-root:
+        required: false
+        type: string
+        default: benchmark-history
+      threshold:
+        required: false
+        type: number
+        default: 10
+
+jobs:
+  check-base:
+    name: Check benchmark base
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: exasol/python-toolbox/.github/actions/python-environment@v10
+        with:
+          python-version: "3.12"
+          poetry-version: "2.3.0"
+      - run: poetry install --no-interaction
+      - name: Check recorded pull-request base
+        run: >-
+          poetry run nox -s benchmark:check-base --
+          --expected-base-sha "${{ inputs.expected-base-sha }}"
+
+  compare:
+    name: Compare benchmark artifacts
+    needs: check-base
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: exasol/python-toolbox/.github/actions/python-environment@v10
+        with:
+          python-version: "3.12"
+          poetry-version: "2.3.0"
+      - run: poetry install --no-interaction
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.artifact-run-id }}
+          path: artifacts
+          github-token: ${{ github.token }}
+          merge-multiple: false
+      - name: Compare with history
+        run: >-
+          poetry run pytest-exasol-benchmark compare artifacts
+          --history-root "${{ inputs.history-root }}"
+          --threshold "${{ inputs.threshold }}"
+          --json-report comparison-reports.json
+          --text-report comparison-report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-comparison-report
+          path: |
+            comparison-reports.json
+            comparison-report.txt
+          if-no-files-found: ignore
+
+  store:
+    name: Store accepted benchmark baseline
+    needs: compare
+    runs-on: ubuntu-24.04
+    environment: benchmark-baseline-approval
+    permissions:
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
-          # Update the branch that owns the PR. The workflow is restricted to
-          # same-repository PRs above, so this branch can be pushed safely with
-          # the repository token after environment approval.
           ref: ${{ github.event.pull_request.head.ref }}
-
-      - uses: actions/setup-python@v5
+      - uses: exasol/python-toolbox/.github/actions/python-environment@v10
         with:
           python-version: "3.12"
-
-      - name: Install benchmark project
-        run: pip install .
-
-      - name: Download runner artifacts
-        uses: actions/download-artifact@v4
+          poetry-version: "2.3.0"
+      - run: poetry install --no-interaction
+      - uses: actions/download-artifact@v4
         with:
+          run-id: ${{ inputs.artifact-run-id }}
           path: artifacts
-
+          github-token: ${{ github.token }}
+          merge-multiple: false
       - name: Store accepted baseline
-        run: |
-          pytest-exasol-benchmark store artifacts \
-            --history-root benchmark-history
-
-      - name: Commit baseline to the source PR branch
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add benchmark-history
-          if git diff --cached --quiet; then
-            echo "Benchmark history is already up to date."
-            exit 0
-          fi
-          git commit -m "Update benchmark baseline"
-          git push origin \
-            "HEAD:${{ github.event.pull_request.head.ref }}"
+        run: >-
+          poetry run pytest-exasol-benchmark store artifacts
+          --history-root "${{ inputs.history-root }}"
+      - name: Commit baseline to source branch
+        run: >-
+          poetry run nox -s benchmark:commit-baseline --
+          --history-root "${{ inputs.history-root }}"
+          --source-branch "${{ github.event.pull_request.head.ref }}"
+          --commit-message "Update benchmark baseline"
