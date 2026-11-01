@@ -37,10 +37,10 @@ matrices, commands, IDs, and setup remain in consumer-owned workflows.
 
 ## Workflow boundaries
 
-- `benchmark-run.yml`: consumer-owned benchmark matrix and artifact creation.
-- `benchmark-parent.yml`: consumer-owned workflow composition and configuration.
-- `benchmark-orchestrator.yml`: generated Poetry/PTB orchestration workflow.
-- `benchmark-workflow-check.yml`: generated freshness-check workflow.
+- Example `benchmark-run.yml`: consumer-owned benchmark matrix and artifact creation.
+- Example `benchmark-parent.yml`: consumer-owned workflow composition and configuration.
+- Generated orchestrator workflow example: Poetry/PTB orchestration.
+- Generated workflow-check example: freshness validation for generated workflows.
 
 ## Artifact contract
 
@@ -214,7 +214,11 @@ Acceptance criteria:
 
 Dependencies: Nox infrastructure and workflow generator.
 
-### 8. Add consumer `benchmark-run.yml`
+### 8. Add example consumer `benchmark-run.yml`
+
+This ticket adds the workflow only to the generated example consumer fixture;
+it does not add a benchmark workflow to this repository or prescribe a
+production consumer workflow.
 
 Scope:
 
@@ -230,7 +234,11 @@ Acceptance criteria:
 
 Dependencies: provenance/packaging support and workflow generator.
 
-### 9. Add consumer `benchmark-parent.yml`
+### 9. Add example consumer `benchmark-parent.yml`
+
+This ticket adds the workflow only to the generated example consumer fixture;
+it does not add a parent workflow to this repository or prescribe a production
+consumer workflow.
 
 Scope:
 
@@ -246,7 +254,10 @@ Acceptance criteria:
 
 Dependencies: benchmark-run workflow and workflow generator.
 
-### 10. Add generated `benchmark-orchestrator.yml`
+### 10. Add generated orchestrator workflow example
+
+This ticket covers the generated workflow example and its reusable template;
+it does not enable the benchmark workflow in this repository.
 
 Scope:
 
@@ -266,7 +277,10 @@ Acceptance criteria:
 
 Dependencies: #19, Nox sessions, benchmark-run and parent workflows.
 
-### 11. Add generated `benchmark-workflow-check.yml`
+### 11. Add generated workflow-check example
+
+This ticket covers the generated freshness-check workflow example; it does not
+add an active benchmark check workflow to this repository.
 
 Scope:
 

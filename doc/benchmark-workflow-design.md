@@ -516,10 +516,10 @@ contract.
 | `benchmark:commit-baseline` | History-only Git commit and source-branch push safeguards |
 | `benchmark:generate-workflow` | Generate/check the orchestrator and workflow-check workflows |
 | `benchmark:generate-example` | Generate and validate the complete example consumer |
-| `benchmark-run.yml` | Consumer-owned benchmark matrix, packaging, and artifact upload |
-| `benchmark-parent.yml` | Consumer-owned composition and configuration forwarding |
-| `benchmark-orchestrator.yml` | Poetry/PTB orchestration, comparison, approval, storage, and promotion |
-| `benchmark-workflow-check.yml` | CI freshness check for generated workflow files |
+| Example `benchmark-run.yml` | Example consumer benchmark matrix, packaging, and artifact upload |
+| Example `benchmark-parent.yml` | Example consumer composition and configuration forwarding |
+| Generated orchestrator example | Poetry/PTB orchestration, comparison, approval, storage, and promotion |
+| Generated workflow-check example | CI freshness check for generated workflow files |
 | Documentation/release | Consumer guidance, governance, package inclusion, and release migration |
 
 The existing comparison and history-storage CLI work in issue #19 is a
