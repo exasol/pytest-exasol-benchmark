@@ -102,20 +102,18 @@ The consuming repository owns:
 - protected environment names;
 - optional repository-specific workflow steps.
 
-The consumer workflow is therefore explicit and parameterized in these
-repository-specific values. The package must not infer benchmark tests from the
-repository. A configuration file must explicitly provide at least:
+The consumer's `benchmark-run.yml` and parent workflow explicitly define the
+matrix, benchmark command, test-set ID, comparison target, runner execution-ID
+mapping, and project-specific setup. The package generator must not infer or
+configure those benchmark details.
 
-- matrix entries and runner execution-ID mapping;
-- the benchmark command and arguments;
-- test-set ID and comparison target;
-- protected environment names;
-- any project-specific setup steps or reusable actions.
+The generator configuration contains only orchestrator concerns, such as the
+history root, regression threshold, approval environment, generated workflow
+filenames, and supported action/runtime versions. It must not contain secrets,
+benchmark results, or project-specific benchmark commands.
 
-The generated benchmark job invokes the configured benchmark command. The
-default example is `pytest`, but the workflow template must not assume a
-specific test path such as `tests/benchmarks` unless the configuration supplies
-it.
+See `doc/benchmark-workflow-config.example.json` for a complete example of
+the orchestrator-only configuration.
 
 ## Workflow lifecycle
 
@@ -282,9 +280,11 @@ consumer-owned. The package must not embed credentials or database secrets.
 The package provides `benchmark:generate-workflow` to generate the reusable
 orchestrator and its freshness-check workflow. It must:
 
-- accept an explicit configuration path and workflow output directory;
+- accept an explicit orchestrator configuration path and workflow output directory;
 - generate both `benchmark-orchestrator.yml` and
   `benchmark-workflow-check.yml`;
+- reject benchmark matrices, commands, test paths, identifiers, runner mappings,
+  and project-specific setup in the generator configuration;
 - validate identifiers, paths, environments, and action versions;
 - render deterministically and write atomically;
 - refuse to overwrite a modified output unless `--force` is supplied;
@@ -302,9 +302,15 @@ for the Nox-only operations:
 from exasol.pytest_benchmark.nox import benchmark_sessions
 
 benchmark_sessions(
-    history_root="benchmark-history",
+    workflow_config="benchmark-workflow.json",
+    workflow_output_dir=".github/workflows",
 )
 ```
+
+`workflow_config` and `workflow_output_dir` configure workflow generation
+defaults only. They do not configure benchmark execution. The consumer's
+`benchmark-run.yml` and parent workflow own the matrix, benchmark command,
+test-set ID, comparison target, runner mapping, and project setup.
 
 The orchestrator generator is invoked explicitly:
 
@@ -324,17 +330,15 @@ from exasol.pytest_benchmark.nox import benchmark_sessions
 benchmark_sessions()
 ```
 
-The consumer repository’s `noxfile.py` remains small and owns only project
-configuration:
+The consumer repository’s `noxfile.py` remains small and owns only workflow
+generation defaults:
 
 ```python
 from exasol.pytest_benchmark.nox import benchmark_sessions
 
 benchmark_sessions(
-    pytest_command=("pytest", "tests/benchmarks"),
-    test_set_id="tpch-sf10",
-    comparison_target="onprem-standard",
-    history_root="benchmark-history",
+    workflow_config="benchmark-workflow.json",
+    workflow_output_dir=".github/workflows",
 )
 ```
 

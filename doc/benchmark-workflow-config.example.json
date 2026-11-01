@@ -1,0 +1,19 @@
+{
+  "history_root": "benchmark-history",
+  "threshold_percent": 10.0,
+  "approval_environment": "benchmark-baseline-approval",
+  "workflow_files": {
+    "orchestrator": "benchmark-orchestrator.yml",
+    "workflow_check": "benchmark-workflow-check.yml"
+  },
+  "runtime": {
+    "python_version": "3.12",
+    "poetry_version": "2.3.0",
+    "python_toolbox_action": "exasol/python-toolbox/.github/actions/python-environment@v10"
+  },
+  "actions": {
+    "checkout": "actions/checkout@v4",
+    "download_artifact": "actions/download-artifact@v4",
+    "upload_artifact": "actions/upload-artifact@v4"
+  }
+}

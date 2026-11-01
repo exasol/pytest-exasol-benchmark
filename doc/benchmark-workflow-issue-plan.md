@@ -26,11 +26,14 @@ The consumer controls benchmark execution and project-specific setup. Existing
 package CLIs remain the interface for packaging, comparison, and history
 storage. Nox provides only the operations that do not already have a suitable
 CLI, plus deterministic generation of the reusable orchestrator workflows.
+The generator configuration describes orchestrator behavior only; benchmark
+matrices, commands, IDs, and setup remain in consumer-owned workflows.
 
 ## Design references
 
 - `doc/benchmark-workflow-design.md`
 - `doc/github-benchmark-workflow-sketches.yml`
+- `doc/benchmark-workflow-config.example.json`
 
 ## Workflow boundaries
 
@@ -105,12 +108,16 @@ Scope:
 
 - Add the optional Nox dependency.
 - Add the public `benchmark_sessions()` registration helper.
+- Define `workflow_config` and `workflow_output_dir` as workflow-generation
+  defaults only.
 - Keep core artifact and CLI imports independent of Nox.
 - Add discovery coverage from a minimal consumer `noxfile.py`.
 
 Acceptance criteria:
 
 - A consumer can import and register the package sessions without copying implementation code.
+- The helper does not accept benchmark commands, matrices, IDs, runner mappings,
+  or project-specific setup.
 - Core package functionality remains importable without Nox.
 - Required session names are discoverable.
 
@@ -171,11 +178,15 @@ Dependencies: Nox infrastructure and history storage CLI behavior (#19).
 
 Scope:
 
-- Accept explicit workflow configuration and output directory arguments.
-- Generate `benchmark-orchestrator.yml` and `benchmark-workflow-check.yml`.
+- Accept explicit orchestrator configuration and output directory arguments.
+- Include and validate the orchestrator-only example configuration from
+  `doc/benchmark-workflow-config.example.json`.
+- Generate `benchmark-orchestrator.yml` and `benchmark-workflow-check.yml` from
+  orchestrator-only configuration.
 - Render deterministic Poetry/PTB workflows.
 - Support atomic writes, modified-file protection, `--force`, and `--check`.
 - Validate YAML and required job/action invariants.
+- Do not define or infer benchmark commands, matrices, IDs, or project setup.
 
 Acceptance criteria:
 
