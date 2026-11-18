@@ -28,6 +28,7 @@ them with the history, detecting regressions and suspicious speedups.
   validated candidate collection per test set and comparison target
 * #18: Added `compare_with_history`, `compare_collections`, and `aggregate_collection`,
   which compare runner benchmark with the checked-out history
+* #1: Added support for Python 3.14
 * #19: Implemented the `compare` and `store` commands. `compare` prints
   regressions and suspicious speedups, and fails if either exceeds the larger
   of the percentage threshold and 1 ms absolute floor. Its Python report field
@@ -58,6 +59,7 @@ them with the history, detecting regressions and suspicious speedups.
   duplicate runner executions at once, validates each execution like a packaged
   artifact, and rejects execution directories without a manifest, symbolic links,
   and the history of a running or interrupted store
+* #47: Removed support for Python 3.10 and updated exasol-toolbox 12.0.0
 * #19: Moved `aggregate_collection` from `comparison` to the new module `aggregation`,
   so `store_history` can validate test sets
 
