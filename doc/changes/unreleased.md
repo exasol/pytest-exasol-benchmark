@@ -31,8 +31,7 @@ them with the history, detecting regressions and suspicious speedups.
 * #1: Added support for Python 3.14
 * #19: Implemented the `compare` and `store` commands. `compare` prints
   regressions and suspicious speedups, and fails if either exceeds the larger
-  of the percentage threshold and 1 ms absolute floor. Its Python report field
-  is named `absolute_floor_seconds` (formerly `near_zero_seconds`). All
+  of the percentage threshold and 1 ms absolute floor. All
   commands exit with 2 on operational errors. `store_history` also rejects test
   sets whose runner executions hold different benchmarks or invalid statistics
 
