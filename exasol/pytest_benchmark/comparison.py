@@ -4,10 +4,10 @@ The *candidate*, the runner executions of the current benchmark run, is
 compared with the *baseline*, the history in the current checkout.  Each side
 is reduced to one value per test set and benchmark: each runner execution
 yields the median of the benchmark's round timings, and these runner medians
-are combined into their median.  A benchmark of the candidate slower than the
-baseline by more than a threshold is a regression, one faster by more than
-the same tolerance a speedup.  Test sets and benchmarks present on one side only
-are reported, but never classified as a regression.
+are combined into their median.  A difference is excessive when it exceeds
+both the relative threshold and the absolute floor: a slowdown is a
+regression, and a speedup is suspicious.  Test sets and benchmarks present on
+one side only are reported, but never classified as a regression.
 """
 
 import math
@@ -40,8 +40,8 @@ DEFAULT_ABSOLUTE_FLOOR_SECONDS = 1e-3
 # A (test set ID, comparison target) pair, naming one test set collection.
 _TestSetKey = tuple[str, str]
 
-# Relative tolerance of the threshold, so a change equal to the threshold is
-# no regression nor speedup even if computing it was not exact, for example
+# Relative tolerance of the allowed difference, so an exact boundary is no
+# regression nor speedup even if computing it was not exact, for example
 # 2.0 -> 2.2.
 _THRESHOLD_TOLERANCE = 1e-9
 
@@ -112,9 +112,7 @@ def _result(
         percentage = absolute_change / baseline * 100
         if math.isfinite(percentage):
             change = percentage
-    allowed_delta = max(
-        absolute_floor_seconds, baseline * (threshold_percent / 100)
-    )
+    allowed_delta = max(absolute_floor_seconds, baseline * (threshold_percent / 100))
     return ComparisonResult(
         fullname=fullname,
         baseline=baseline,

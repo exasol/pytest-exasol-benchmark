@@ -9,7 +9,7 @@ existing table, the `pytest-exasol-benchmark` executable with its `package`,
 `compare`, and `store` commands, storing runner artifacts as the benchmark
 history, normalizing pytest-benchmark JSON for comparisons, collecting
 downloaded runner artifacts for comparison with the history, and comparing
-them with the history, highlighting regressions and speedups.
+them with the history, detecting regressions and suspicious speedups.
 
 ## Features
 
@@ -28,10 +28,12 @@ them with the history, highlighting regressions and speedups.
   validated candidate collection per test set and comparison target
 * #18: Added `compare_with_history`, `compare_collections`, and `aggregate_collection`,
   which compare runner benchmark with the checked-out history
-* #19: Implemented the `compare` and `store` commands.  `compare` prints the
-  regressions and the speedups. All commands exit with 2 on errors, `store_history` now 
-  also rejects test sets whose runner executions hold different benchmarks or invalid
-  statistics
+* #19: Implemented the `compare` and `store` commands. `compare` prints
+  regressions and suspicious speedups, and fails if either exceeds the larger
+  of the percentage threshold and 1 ms absolute floor. Its Python report field
+  is named `absolute_floor_seconds` (formerly `near_zero_seconds`). All
+  commands exit with 2 on operational errors. `store_history` also rejects test
+  sets whose runner executions hold different benchmarks or invalid statistics
 
 ## Bugfixes
 

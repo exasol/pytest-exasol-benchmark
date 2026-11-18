@@ -306,9 +306,10 @@ class ComparisonResult(Model):
     undefined or non-finite, see
     :func:`~exasol.pytest_benchmark.comparison.compare_collections`.
     ``regression`` tells whether the candidate is slower than the report
-    allows, ``speedup`` whether it is faster by more than the report's
-    threshold.  A result is never both.  ``attributes`` is an extension point
-    for further derived information.
+    allows, ``speedup`` whether it is faster by more than the same allowance.
+    The allowance is the larger of the report's percentage threshold and its
+    absolute floor.  A result is never both.  ``attributes`` is an extension
+    point for further derived information.
     """
 
     fullname: str = Field(min_length=1)

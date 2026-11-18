@@ -231,6 +231,12 @@ def test_compare_rejects_invalid_threshold(run, artifacts_dir, value):
     assert "Invalid value for '--threshold'" in result.output
 
 
+def test_compare_help_explains_hybrid_tolerance(run):
+    result = run("compare", "--help")
+    assert result.exit_code == 0
+    assert "fixed 1 ms absolute floor" in " ".join(result.output.split())
+
+
 @pytest.mark.parametrize("command", ["compare", "store"])
 def test_rejects_empty_history_root(run, artifacts_dir, command):
     result = run(command, str(artifacts_dir), "--history-root", "")

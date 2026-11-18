@@ -253,7 +253,7 @@ at.
         print(report.test_set_id, report.comparison_target, report.status)
         for result in report.regressions:
             change = result.change_percent
-            # No percentage for a baseline too close to zero, see below.
+            # No percentage for a zero baseline or a non-finite calculation.
             text = "n/a" if change is None else f"{change:+.1f} %"
             print(f"  slower: {result.fullname}: {text}")
         for result in report.speedups:
@@ -298,10 +298,9 @@ times the threshold (``10`` percent by default).  Differences exactly at that
 limit, including ordinary floating-point rounding at a percentage boundary,
 are allowed.
 
-A benchmark faster by more than the threshold is a *speedup*, flagged by
-``speedup`` and listed by the report's ``speedups``.  It is the counterpart of
-a regression and likewise fails a comparison.  It can be reported even when
-``change_percent`` is ``None``.
+A benchmark faster beyond the same allowed difference is a *speedup*, flagged
+by ``speedup`` and listed by the report's ``speedups``.  It is the counterpart
+of a regression and likewise fails a comparison.
 
 There is one ``ComparisonReport`` per test set and comparison target of either
 side.  Its ``status`` tells whether the test set was compared:

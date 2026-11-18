@@ -225,7 +225,9 @@ def test_rejects_runners_with_different_benchmarks(
         pytest.param(0.0, 1.1e-3, None, True, False, id="zero-above-floor"),
         pytest.param(1e-4, 9e-4, 800.0, False, False, id="below-floor"),
         pytest.param(1e-4, 1.2e-3, 1100.0, True, False, id="above-floor"),
-        pytest.param(1.2e-3, 1e-4, -91.66666666666667, False, True, id="speedup-above-floor"),
+        pytest.param(
+            1.2e-3, 1e-4, -91.66666666666667, False, True, id="speedup-above-floor"
+        ),
         pytest.param(2e-3, 1e-3, -50.0, False, False, id="speedup-at-floor"),
     ],
 )

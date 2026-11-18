@@ -161,8 +161,9 @@ def package(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     type=click.FloatRange(min=0),
     callback=_validate_finite,
     help=(
-        "Change in percent: a benchmark slower or faster beyond the tolerance"
-        " is a comparison failure."
+        "Percentage allowance: the tolerance is the larger of this percentage"
+        " of the baseline and the fixed 1 ms absolute floor. A benchmark slower"
+        " or faster beyond it is a comparison failure."
     ),
 )
 @click.option(
