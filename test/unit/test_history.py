@@ -140,16 +140,18 @@ def test_collect_explains_flat_layout(artifacts, tmp_path, make_bundle):
 def test_store_round_trips_test_sets_targets_and_runners(
     artifacts, history, make_bundle
 ):
+    # The runners of a test set hold the same benchmark, told apart by its median.
+    medians = {"run-1": 1.0, "run-2": 2.0}
     for target in ("main", "saas"):
         for test_set in ("tpch", "tpcds"):
-            for runner in ("run-1", "run-2"):
+            for runner, median in medians.items():
                 make_bundle(
                     artifacts,
                     f"{target}-{test_set}-{runner}",
                     test_set_id=test_set,
                     comparison_target=target,
                     runner_execution_id=runner,
-                    fullname=f"{target}::{test_set}::{runner}",
+                    medians={f"{target}::{test_set}": median},
                 )
     store_history(artifacts, history)
     collections = load_history(history)
@@ -160,10 +162,12 @@ def test_store_round_trips_test_sets_targets_and_runners(
             "run-2",
         ]
         for execution in collection.executions:
-            fullname = execution.benchmark["benchmarks"][0]["fullname"]
-            assert fullname == (
+            (benchmark,) = execution.benchmark["benchmarks"]
+            assert benchmark["fullname"] == (
                 f"{collection.comparison_target}::{collection.test_set_id}"
-                f"::{execution.manifest.runner_execution_id}"
+            )
+            assert benchmark["stats"]["median"] == (
+                medians[execution.manifest.runner_execution_id]
             )
 
 
@@ -270,6 +274,43 @@ def test_store_rejects_duplicate_identity(artifacts, history, make_bundle):
     make_bundle(artifacts, "copy", runner_execution_id="run-1")
     with pytest.raises(ArtifactError, match=r"duplicate runner execution .*copy"):
         store_history(artifacts, history)
+    assert not history.exists()
+
+
+def test_store_rejects_runners_with_different_benchmarks_leaving_history(
+    make_bundle, tmp_path, history
+):
+    first = tmp_path / "first"
+    make_bundle(first, "run-1")
+    store_history(first, history)
+    before = snapshot(history)
+    second = tmp_path / "second"
+    make_bundle(second, "run-2", medians={"test/bench.py::a": 1.0})
+    make_bundle(
+        second, "run-3", medians={"test/bench.py::a": 1.0, "test/bench.py::b": 1.0}
+    )
+    with pytest.raises(ArtifactError) as error:
+        store_history(second, history)
+    assert str(error.value) == (
+        "runner execution (test set 'tpch', comparison target 'main', runner"
+        " execution 'run-2') lacks benchmarks which other runner executions of its"
+        " test set hold: test/bench.py::b"
+    )
+    assert snapshot(history) == before
+
+
+def test_store_rejects_invalid_statistics_of_all_test_sets(
+    artifacts, history, make_bundle
+):
+    make_bundle(artifacts, "run-1", medians={"test/bench.py::a": -1.0})
+    make_bundle(
+        artifacts, "run-2", test_set_id="tpcds", medians={"test/bench.py::a": -2.0}
+    )
+    with pytest.raises(ArtifactError) as error:
+        store_history(artifacts, history)
+    message = str(error.value)
+    assert "'stats.median' -1.0" in message
+    assert "'stats.median' -2.0" in message
     assert not history.exists()
 
 

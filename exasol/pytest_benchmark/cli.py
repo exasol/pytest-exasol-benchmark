@@ -16,16 +16,31 @@ from pydantic import (
 
 from .artifact import (
     ArtifactError,
+    _os_message,
     package_artifact,
 )
-from .comparison import DEFAULT_THRESHOLD_PERCENT
-from .history import DEFAULT_HISTORY_ROOT
+from .cli_comparison import _run_comparison
+from .cli_errors import _CommandError
+from .cli_output import (
+    format_comparison_reports,
+    format_store_result,
+)
+from .comparison import (
+    DEFAULT_THRESHOLD_PERCENT,
+)
+from .history import (
+    DEFAULT_HISTORY_ROOT,
+    store_history,
+)
 from .models import (
     IDENTIFIER_RULE,
     Identifier,
 )
 
 _IDENTIFIER = TypeAdapter(Identifier)
+
+# The exit status of a comparison which found an excessive difference.
+_COMPARISON_FAILURE_EXIT_CODE = 1
 
 
 def _validate_identifier(
@@ -69,10 +84,6 @@ def _validate_finite(
     if not math.isfinite(value):
         raise click.BadParameter(f"{value} is not a finite number.")
     return value
-
-
-def _not_implemented(command: str) -> click.ClickException:
-    return click.ClickException(f"{command} is not implemented yet.")
 
 
 def _artifacts_dir_argument():
@@ -136,7 +147,7 @@ def package(  # pylint: disable=too-many-arguments,too-many-positional-arguments
             source_revision=source_revision,
         )
     except ArtifactError as error:
-        raise click.ClickException(str(error)) from error
+        raise _CommandError(str(error)) from error
     click.echo(f"Packaged runner artifact to {output_dir}")
 
 
@@ -149,16 +160,46 @@ def package(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     show_default=True,
     type=click.FloatRange(min=0),
     callback=_validate_finite,
-    help="Slowdown in percent above which a benchmark is a regression.",
+    help=(
+        "Percentage allowance: the tolerance is the larger of this percentage"
+        " of the baseline and the fixed 1 ms absolute floor. A benchmark slower"
+        " or faster beyond it is a comparison failure."
+    ),
 )
-def compare(artifacts_dir: Path, history_root: Path, threshold: float) -> None:
+@click.option(
+    "--json-output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help=(
+        "File the comparison reports are written to as JSON.  An existing file"
+        " is removed first, even if the comparison fails."
+    ),
+)
+@click.pass_context
+def compare(
+    ctx: click.Context,
+    artifacts_dir: Path,
+    history_root: Path,
+    threshold: float,
+    json_output: Path | None,
+) -> None:
     """Compare runner artifacts with the history.
 
     Compares the downloaded runner artifacts in ARTIFACTS_DIR with the
-    benchmark history of the current checkout.  Exits nonzero only for
-    regressions or invalid input.
+    benchmark history of the current checkout and prints a report per test
+    set, listing regressions and suspicious speedups separately.  Nothing is
+    written to the history.
+
+    Exits with 0 if no benchmark exceeds the tolerance, with 1 if a slowdown
+    or speedup does, and with 2, like the other commands, if the comparison
+    could not be done, for example because of invalid input or because the
+    history holds none of the test sets of the artifacts.
+    Test sets and benchmarks held by one side only are reported, but do not
+    fail the comparison.
     """
-    raise _not_implemented("compare")
+    reports = _run_comparison(artifacts_dir, history_root, threshold, json_output)
+    click.echo("\n".join(format_comparison_reports(reports)))
+    if any(report.regressions or report.speedups for report in reports):
+        ctx.exit(_COMPARISON_FAILURE_EXIT_CODE)
 
 
 @main.command()
@@ -168,6 +209,15 @@ def store(artifacts_dir: Path, history_root: Path) -> None:
     """Store runner artifacts as the history.
 
     Stores the runner artifacts in ARTIFACTS_DIR as the benchmark history
-    below the history root.
+    below the history root, replacing the stored runner executions of each
+    test set they hold.  Every artifact and test set is validated first: if
+    any is invalid or incomplete, nothing is stored.
     """
-    raise _not_implemented("store")
+    try:
+        collections = store_history(artifacts_dir, history_root)
+    except ArtifactError as error:
+        raise _CommandError(str(error)) from error
+    except OSError as error:
+        # Not every file system error is reported as an ArtifactError.
+        raise _CommandError(f"cannot store: {_os_message(error)}") from error
+    click.echo("\n".join(format_store_result(collections, history_root)))

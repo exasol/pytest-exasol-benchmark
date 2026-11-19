@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from exasol.pytest_benchmark import QueryResult
-from exasol.pytest_benchmark.artifact import package_artifact
+from exasol.pytest_benchmark.artifact import (
+    collect_candidates,
+    package_artifact,
+)
+from exasol.pytest_benchmark.models import TestSetCollection
 
 
 class RecordingQueryFunc:
@@ -55,7 +59,7 @@ def _benchmark_json(
     """A pytest-benchmark JSON document.
 
     It holds the single benchmark *fullname*, or, if given, one benchmark for each
-    fullname in *medians*, with complete statistics for the median.
+    fullname in *medians*, each with complete statistics.
     """
     # Indented and unsorted like pytest-benchmark's output, so a re-serialization
     # would show up as a byte difference.
@@ -66,7 +70,7 @@ def _benchmark_json(
             "python_version": "3.11.9",
         },
         "benchmarks": (
-            [{"fullname": fullname, "stats": {"mean": 1.0000000000000002e-05}}]
+            [{"fullname": fullname, "stats": _stats(1.0000000000000002e-05)}]
             if medians is None
             else [
                 {"fullname": name, "stats": _stats(median)}
@@ -122,3 +126,39 @@ def make_bundle() -> Callable[..., Path]:
     ``medians`` of several benchmarks by fullname.
     """
     return _bundle
+
+
+@pytest.fixture
+def add_runs(make_bundle):
+    """Package one runner artifact per runner execution ID in *runs*.
+
+    *runs* maps each runner execution ID to the medians of its benchmarks.
+    """
+
+    def add(directory: Path, runs, test_set_id="tpch", source_revision="d66cb7d"):
+        for runner, medians in runs.items():
+            make_bundle(
+                directory,
+                f"{test_set_id}-{runner}",
+                test_set_id=test_set_id,
+                runner_execution_id=runner,
+                source_revision=source_revision,
+                medians=medians,
+            )
+
+    return add
+
+
+def _only_collection(artifacts: Path) -> TestSetCollection:
+    """The candidate collection of the runner artifacts in *artifacts*.
+
+    The artifacts have to hold a single test set.
+    """
+    (collection,) = collect_candidates(artifacts)
+    return collection
+
+
+@pytest.fixture
+def only_collection() -> Callable[[Path], TestSetCollection]:
+    """Collect the runner artifacts of a single test set, see `_only_collection`."""
+    return _only_collection

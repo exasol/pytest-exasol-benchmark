@@ -351,15 +351,67 @@ the resulting JSON file.
 
 ``compare``
     Compares the runner artifacts in a directory with the benchmark history of
-    the current checkout (``--history-root``, default ``benchmark-history``).
-    A benchmark slower than ``--threshold`` percent (default ``10``) is a
-    regression.
+    the current checkout (``--history-root``, default ``benchmark-history``)
+    and prints one report per test set, see :doc:`benchmark-history` for how
+    the runner executions are aggregated and compared.  A benchmark is a
+    regression when it is slower by more than both ``--threshold`` percent
+    (default ``10``) and the 0.001-second absolute floor; one faster beyond
+    the same limit is a suspicious speedup.  Regressions, speedups, and the
+    benchmarks within the tolerance are listed in separate sections, followed
+    by the benchmarks and test sets held by one side only, and a summary.
+    ``n/a`` stands for a change which is undefined because the baseline is
+    zero or the calculation is non-finite.  ``--json-output`` additionally
+    writes the reports to a file as a JSON list of ``ComparisonReport``
+    objects.  Nothing is written to the history.
+
+    .. warning::
+
+       An existing ``--json-output`` file is removed before anything else, so
+       a failed comparison leaves no outdated reports behind.  It is removed
+       even if the comparison then fails, so never point the option at a file
+       you want to keep, such as the ``--benchmark-json`` output of pytest.
+
+    .. code-block:: shell
+
+        pytest-exasol-benchmark compare artifacts --json-output reports.json
+
+    .. code-block:: text
+
+        Test set tpch-sf10 of comparison target onprem-standard: compared 3 history runner executions with 3 of the candidate
+          Regressions, slower by more than 10 %:
+              +20.0 %  1 s -> 1.2 s  tests/test_queries.py::test_select[10]
+          Suspicious speedups, faster by more than 10 %:
+              -35.0 %  2 s -> 1.3 s  tests/test_queries.py::test_join[10]
+          Within the tolerance:
+               +2.0 %  0.5 s -> 0.51 s  tests/test_queries.py::test_count[10]
+          Only in the candidate:
+            tests/test_queries.py::test_group_by[10]
+        Summary: 1 regression, 1 speedup, 1 within the tolerance, 1 benchmark only in the candidate
+
+    The exit status is ``0`` if no benchmark exceeds the tolerance, ``1`` if a
+    regression or suspicious speedup does, and ``2`` if the comparison could
+    not be done, for example because an artifact or the history is invalid,
+    or because the history holds none of the test sets of the artifacts, for
+    example because it is missing.  Without a compared test set nothing could
+    exceed the tolerance, so a mistyped ``--history-root``, test set ID, or
+    comparison target would otherwise pass.  For the first benchmark run of a
+    project, use ``store`` instead to create the history.  Data held by one
+    side only, such as a new test set added to an existing history or a
+    removed benchmark, do not fail the comparison.
 
 ``store``
     Stores the runner artifacts in a directory as the benchmark history below
-    ``--history-root``.
+    ``--history-root``, replacing the stored runner executions of each test
+    set they hold.  Everything is validated before the history is changed: an
+    incomplete or invalid artifact, two artifacts with the same runner
+    identity, runner executions of a test set holding different benchmarks,
+    and benchmarks with invalid statistics are rejected with exit status
+    ``2``, and nothing is stored.
 
-The command set is not complete yet: ``compare`` and ``store`` validate their
-arguments, but otherwise fail with a "not implemented" error.  ``pytest-exasol-benchmark
---help`` and ``pytest-exasol-benchmark <command> --help`` describe the
-available options.
+    .. code-block:: shell
+
+        pytest-exasol-benchmark store artifacts
+
+Every command exits with status ``2`` if it could not be done, for example
+because of invalid input.  ``pytest-exasol-benchmark --help`` and
+``pytest-exasol-benchmark <command> --help`` describe the available options.

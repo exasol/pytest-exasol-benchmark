@@ -1,6 +1,6 @@
 import hashlib
 import math
-import sys
+import shutil
 from pathlib import Path
 
 import pytest
@@ -10,9 +10,8 @@ from exasol.pytest_benchmark.artifact import (
     collect_candidates,
 )
 from exasol.pytest_benchmark.comparison import (
-    DEFAULT_NEAR_ZERO_SECONDS,
+    DEFAULT_ABSOLUTE_FLOOR_SECONDS,
     DEFAULT_THRESHOLD_PERCENT,
-    aggregate_collection,
     compare_collections,
     compare_with_history,
 )
@@ -30,27 +29,6 @@ def history_root(tmp_path) -> Path:
 
 
 @pytest.fixture
-def add_runs(make_bundle):
-    """Package one runner artifact per runner execution ID in *runs*.
-
-    *runs* maps each runner execution ID to the medians of its benchmarks.
-    """
-
-    def add(directory: Path, runs, test_set_id="tpch", source_revision="d66cb7d"):
-        for runner, medians in runs.items():
-            make_bundle(
-                directory,
-                f"{test_set_id}-{runner}",
-                test_set_id=test_set_id,
-                runner_execution_id=runner,
-                source_revision=source_revision,
-                medians=medians,
-            )
-
-    return add
-
-
-@pytest.fixture
 def store(tmp_path, add_runs, history_root):
     """Store the runner executions in *runs* as the history, see `add_runs`."""
 
@@ -60,6 +38,25 @@ def store(tmp_path, add_runs, history_root):
         store_history(stored, history_root)
 
     return store_runs
+
+
+@pytest.fixture
+def write_history(tmp_path, add_runs, history_root):
+    """Write the runner executions in *runs* to the history, see `add_runs`.
+
+    Unlike `store`, the runner executions are not validated, so the history can
+    be one `store_history` would reject.
+    """
+
+    def write(runs):
+        written = tmp_path / "written"
+        add_runs(written, runs)
+        for runner in runs:
+            shutil.copytree(
+                written / f"tpch-{runner}", history_root / "main" / "tpch" / runner
+            )
+
+    return write
 
 
 @pytest.fixture
@@ -75,18 +72,13 @@ def only(reports: list[ComparisonReport]) -> ComparisonReport:
     return reports[0]
 
 
-def only_collection(artifacts):
-    (collection,) = collect_candidates(artifacts)
-    return collection
-
-
 def results(report: ComparisonReport) -> dict[str, tuple[float, bool]]:
     return {r.fullname: (r.change_percent, r.regression) for r in report.results}
 
 
 def test_defaults():
     assert DEFAULT_THRESHOLD_PERCENT == 10.0
-    assert DEFAULT_NEAR_ZERO_SECONDS == 1e-3
+    assert DEFAULT_ABSOLUTE_FLOOR_SECONDS == 1e-3
 
 
 def test_compares_aggregated_medians(store, add_runs, artifacts, compare):
@@ -99,6 +91,7 @@ def test_compares_aggregated_medians(store, add_runs, artifacts, compare):
     assert report.candidate_execution_ids == ["run-1"]
     assert results(report) == {A: (20.0, True), B: (-50.0, False)}
     assert [r.fullname for r in report.regressions] == [A]
+    assert [r.fullname for r in report.speedups] == [B]
     assert (report.results[0].baseline, report.results[0].candidate) == (10.0, 12.0)
 
 
@@ -125,6 +118,32 @@ def test_threshold(
     assert report.threshold_percent == threshold
     assert report.results[0].regression is regression
     assert report.regressions == ([report.results[0]] if regression else [])
+
+
+@pytest.mark.parametrize(
+    "candidate, threshold, speedup",
+    [
+        pytest.param(9.0, DEFAULT_THRESHOLD_PERCENT, False, id="at-default"),
+        # (1.98 - 2.2) / 2.2 * 100 computes as -10.000000000000007.
+        pytest.param(1.98, DEFAULT_THRESHOLD_PERCENT, False, id="at-default-inexact"),
+        pytest.param(8.5, DEFAULT_THRESHOLD_PERCENT, True, id="above-default"),
+        pytest.param(9.5, DEFAULT_THRESHOLD_PERCENT, False, id="below-default"),
+        pytest.param(10.0, 0.0, False, id="unchanged-at-zero"),
+        pytest.param(9.9, 0.0, True, id="faster-at-zero"),
+        pytest.param(8.5, 20.0, False, id="below-custom"),
+        pytest.param(7.5, 20.0, True, id="above-custom"),
+        pytest.param(12.5, DEFAULT_THRESHOLD_PERCENT, False, id="regression"),
+    ],
+)
+def test_speedup_threshold(
+    store, add_runs, artifacts, compare, candidate, threshold, speedup
+):
+    baseline = 2.2 if candidate == 1.98 else 10.0
+    store({"run-1": {A: baseline}})
+    add_runs(artifacts, {"run-1": {A: candidate}})
+    report = only(compare(threshold_percent=threshold))
+    assert report.results[0].speedup is speedup
+    assert report.speedups == ([report.results[0]] if speedup else [])
 
 
 def test_median_over_runners_with_different_counts(store, add_runs, artifacts, compare):
@@ -183,11 +202,11 @@ def test_reports_no_common_benchmark(store, add_runs, artifacts, compare):
 
 @pytest.mark.parametrize("side", ["history", "candidate"])
 def test_rejects_runners_with_different_benchmarks(
-    store, add_runs, artifacts, compare, side
+    write_history, add_runs, artifacts, compare, side
 ):
     runs = {"run-1": {A: 10.0, B: 10.0}, "run-2": {A: 10.0}}
     complete = {"run-1": {A: 10.0, B: 10.0}}
-    store(runs if side == "history" else complete)
+    write_history(runs if side == "history" else complete)
     add_runs(artifacts, runs if side == "candidate" else complete)
     with pytest.raises(ArtifactError) as error:
         compare()
@@ -199,23 +218,29 @@ def test_rejects_runners_with_different_benchmarks(
 
 
 @pytest.mark.parametrize(
-    "baseline, candidate, change, regression",
+    "baseline, candidate, change, regression, speedup",
     [
-        pytest.param(0.0, 0.0, None, False, id="both-zero"),
-        pytest.param(0.0, 1e-3, None, False, id="candidate-at-floor"),
-        pytest.param(1e-4, 9e-4, None, False, id="both-below-floor"),
-        pytest.param(0.0, 2e-3, None, True, id="zero-baseline"),
-        # Compared with the floor: a change of 2% and of exactly the threshold.
-        pytest.param(0.99e-3, 1.01e-3, None, False, id="noise-around-floor"),
-        pytest.param(0.0, 1.1e-3, None, False, id="floor-plus-threshold"),
-        pytest.param(0.0, 1.2e-3, None, True, id="above-floor-plus-threshold"),
-        pytest.param(1e-3, 5.0, None, True, id="baseline-at-floor"),
-        pytest.param(2e-3, 1e-3, -50.0, False, id="faster-to-floor"),
-        pytest.param(2e-3, 3e-3, 50.0, True, id="baseline-above-floor"),
+        pytest.param(0.0, 0.0, None, False, False, id="both-zero"),
+        pytest.param(0.0, 1e-3, None, False, False, id="zero-at-floor"),
+        pytest.param(0.0, 1.1e-3, None, True, False, id="zero-above-floor"),
+        pytest.param(1e-4, 9e-4, 800.0, False, False, id="below-floor"),
+        pytest.param(1e-4, 1.2e-3, 1100.0, True, False, id="above-floor"),
+        pytest.param(
+            1.2e-3, 1e-4, -91.66666666666667, False, True, id="speedup-above-floor"
+        ),
+        pytest.param(2e-3, 1e-3, -50.0, False, False, id="speedup-at-floor"),
     ],
 )
-def test_near_zero(
-    store, add_runs, artifacts, compare, baseline, candidate, change, regression
+def test_absolute_floor(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    store,
+    add_runs,
+    artifacts,
+    compare,
+    baseline,
+    candidate,
+    change,
+    regression,
+    speedup,
 ):
     store({"run-1": {A: baseline}})
     add_runs(artifacts, {"run-1": {A: candidate}})
@@ -225,25 +250,34 @@ def test_near_zero(
     else:
         assert math.isclose(result.change_percent, change)
     assert result.regression is regression
+    assert result.speedup is speedup
 
 
-def test_custom_near_zero(store, add_runs, artifacts, compare):
+def test_custom_absolute_floor(store, add_runs, artifacts, compare):
     store({"run-1": {A: 0.001}})
     add_runs(artifacts, {"run-1": {A: 0.002}})
-    report = only(compare(near_zero_seconds=0.01))
-    assert report.near_zero_seconds == 0.01
-    assert report.results[0].change_percent is None
+    report = only(compare(absolute_floor_seconds=0.01))
+    assert report.absolute_floor_seconds == 0.01
+    assert report.results[0].change_percent == 100.0
     assert report.regressions == []
 
 
-def test_floor_respects_threshold(store, add_runs, artifacts, compare):
-    store({"run-1": {A: 0.0}})
-    add_runs(artifacts, {"run-1": {A: 1.5e-3}})
-    assert only(compare(threshold_percent=100.0)).regressions == []
+def test_percentage_band_classifies_regressions(store, add_runs, artifacts, compare):
+    store({"run-1": {A: 1.0}})
+    add_runs(artifacts, {"run-1": {A: 1.15}})
+    assert only(compare()).regressions
+
+
+def test_percentage_band_classifies_speedups(store, add_runs, artifacts, compare):
+    store({"run-1": {A: 1.0}})
+    add_runs(artifacts, {"run-1": {A: 0.85}})
+    assert only(compare()).speedups
 
 
 @pytest.mark.parametrize("side", ["baseline", "candidate"])
-def test_collection_without_executions_is_missing(add_runs, artifacts, side):
+def test_collection_without_executions_is_missing(
+    add_runs, only_collection, artifacts, side
+):
     add_runs(artifacts, {"run-1": {A: 10.0}})
     collection = only_collection(artifacts)
     empty = Collection(test_set_id="tpch", comparison_target="main")
@@ -254,15 +288,15 @@ def test_collection_without_executions_is_missing(add_runs, artifacts, side):
     assert report.status == f"missing_{side}"
 
 
-def test_change_does_not_overflow(add_runs, artifacts, tmp_path):
+def test_non_finite_percentage_is_not_reported(add_runs, artifacts, tmp_path):
     add_runs(artifacts, {"run-1": {A: 1e300}})
     candidate = collect_candidates(artifacts)
     add_runs(tmp_path / "baseline", {"run-1": {A: 1e-200}})
     baseline = collect_candidates(tmp_path / "baseline")
     result = only(
-        compare_collections(baseline, candidate, near_zero_seconds=1e-300)
+        compare_collections(baseline, candidate, absolute_floor_seconds=1e-300)
     ).results[0]
-    assert result.change_percent == sys.float_info.max
+    assert result.change_percent is None
     assert result.regression
 
 
@@ -285,8 +319,8 @@ def test_uses_checked_out_history_as_is(
     assert _tree(history_root) == before
 
 
-def test_rejects_invalid_statistics(store, add_runs, artifacts, compare):
-    store({"run-1": {A: -1.0}})
+def test_rejects_invalid_statistics(write_history, add_runs, artifacts, compare):
+    write_history({"run-1": {A: -1.0}})
     add_runs(artifacts, {"run-1": {A: -2.0}, "run-2": {A: 10.0}})
     with pytest.raises(ArtifactError) as error:
         compare()
@@ -303,8 +337,8 @@ def test_rejects_invalid_statistics(store, add_runs, artifacts, compare):
     [
         ({"threshold_percent": -1.0}, "threshold_percent"),
         ({"threshold_percent": math.nan}, "threshold_percent"),
-        ({"near_zero_seconds": 0.0}, "near_zero_seconds"),
-        ({"near_zero_seconds": math.inf}, "near_zero_seconds"),
+        ({"absolute_floor_seconds": 0.0}, "absolute_floor_seconds"),
+        ({"absolute_floor_seconds": math.inf}, "absolute_floor_seconds"),
     ],
 )
 def test_rejects_invalid_parameters(kwargs, message):
@@ -312,7 +346,9 @@ def test_rejects_invalid_parameters(kwargs, message):
         compare_collections([], [], **kwargs)
 
 
-def test_rejects_test_set_twice_with_the_other_problems(add_runs, artifacts, tmp_path):
+def test_rejects_test_set_twice_with_the_other_problems(
+    add_runs, only_collection, artifacts, tmp_path
+):
     add_runs(artifacts, {"run-1": {A: 10.0}})
     collection = only_collection(artifacts)
     add_runs(tmp_path / "invalid", {"run-1": {A: -1.0}})
@@ -324,39 +360,3 @@ def test_rejects_test_set_twice_with_the_other_problems(add_runs, artifacts, tmp
     assert lines[-1] == (
         "candidate: test set 'tpch' of comparison target 'main' occurs twice"
     )
-
-
-def test_aggregate_collection(add_runs, artifacts):
-    add_runs(
-        artifacts,
-        {
-            "run-1": {A: 1.0, B: 4.0},
-            "run-2": {A: 3.0, B: 6.0},
-            "run-3": {A: 2.0, B: 9.0},
-        },
-    )
-    collection = only_collection(artifacts)
-    aggregated = aggregate_collection(collection)
-    assert aggregated.executions == collection.executions
-    assert aggregated.executions is not collection.executions
-    assert collection.cases == {}
-    assert {name: case.data for name, case in aggregated.cases.items()} == {
-        A: {"median": 2.0, "executions": 3},
-        B: {"median": 6.0, "executions": 3},
-    }
-
-
-def test_aggregate_collection_rejects_runners_with_different_benchmarks(
-    add_runs, artifacts
-):
-    add_runs(artifacts, {"run-1": {A: 1.0}, "run-2": {A: 1.0, B: 1.0}})
-    collection = only_collection(artifacts)
-    with pytest.raises(ArtifactError, match=r"^runner execution .*'run-1'.* hold: "):
-        aggregate_collection(collection)
-
-
-def test_aggregate_collection_rejects_invalid_statistics(add_runs, artifacts):
-    add_runs(artifacts, {"run-1": {A: -1.0}})
-    collection = only_collection(artifacts)
-    with pytest.raises(ArtifactError, match=r"^the benchmark JSON .*'stats.median'"):
-        aggregate_collection(collection)

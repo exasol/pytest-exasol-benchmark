@@ -180,6 +180,10 @@ Every artifact is validated before the history is changed.  A subdirectory
 that is not a complete artifact -- for example one without ``manifest.json``,
 without its benchmark file, or with an invalid manifest -- and two artifacts
 sharing a runner identity are rejected, all of them reported in one error.
+Then each test set is checked like the comparison checks the history, see
+`Comparing with the history`_: runner executions of a test set holding
+different benchmarks, and benchmarks with invalid statistics, are rejected
+as well, so the comparison does not reject the test sets it stored.
 Symbolic links, for the artifacts directory or inside it, are rejected as
 well.  Entries whose names start with a dot, such as ``.DS_Store`` files, are
 ignored.
@@ -249,12 +253,15 @@ at.
         print(report.test_set_id, report.comparison_target, report.status)
         for result in report.regressions:
             change = result.change_percent
-            # No percentage for a baseline too close to zero, see below.
+            # No percentage for a zero baseline or a non-finite calculation.
             text = "n/a" if change is None else f"{change:+.1f} %"
-            print(f"  {result.fullname}: {text}")
+            print(f"  slower: {result.fullname}: {text}")
+        for result in report.speedups:
+            print(f"  faster: {result.fullname}: {result.change_percent:+.1f} %")
 
 ``compare_collections`` does the same for collections already loaded, and
-``aggregate_collection`` aggregates a single collection.
+``aggregate_collection`` in ``exasol.pytest_benchmark.aggregation``
+aggregates a single collection.
 
 Test sets are matched by test set ID and comparison target.  Each side of a
 test set is reduced to one value per benchmark in two steps.  First, each
@@ -284,14 +291,16 @@ the candidate.
 
 The benchmarks both sides of a test set hold are compared.  The change of a
 benchmark is ``(candidate - baseline) / baseline * 100`` percent, negative for
-a speedup.  It is a regression if the change is greater than the threshold,
-``10`` percent by default; a change equal to the threshold within rounding is
-not.  A baseline not greater than ``near_zero_seconds``, one millisecond by
-default, is too close to zero for a meaningful percentage: the benchmark is
-compared as if the baseline was ``near_zero_seconds``, and its
-``change_percent`` is ``None``.  So a candidate not slower than
-``near_zero_seconds`` is never a regression, and timings varying around it
-are compared with the threshold like any others.
+a speedup.  It is ``None`` when the baseline is zero or the calculation is
+non-finite.  A difference is allowed when its magnitude is at most the larger
+of ``absolute_floor_seconds`` (one millisecond by default) and the baseline
+times the threshold (``10`` percent by default).  Differences exactly at that
+limit, including ordinary floating-point rounding at a percentage boundary,
+are allowed.
+
+A benchmark faster beyond the same allowed difference is a *speedup*, flagged
+by ``speedup`` and listed by the report's ``speedups``.  It is the counterpart
+of a regression and likewise fails a comparison.
 
 There is one ``ComparisonReport`` per test set and comparison target of either
 side.  Its ``status`` tells whether the test set was compared:
@@ -310,7 +319,7 @@ side.  Its ``status`` tells whether the test set was compared:
     The candidate holds no runner execution of the test set.
 
 Each report lists the runner executions aggregated on each side.  Only the
-compared benchmarks can be regressions; test sets and benchmarks held by one
+compared benchmarks can be regressions or speedups; test sets and benchmarks held by one
 side only are reported, but never classified as a regression.  The source
 revision, platform, and attributes of the runner executions are not compared.
 Invalid input is reported in one ``ArtifactError`` listing the problems of
@@ -378,7 +387,7 @@ example by their median, rather than adding each execution's cases to the
 
 A ``ComparisonResult`` records the aggregated medians of one case on both
 sides of a comparison, in seconds, its change, and whether it is a
-regression::
+regression or a speedup, never both::
 
     ComparisonResult(
         fullname="tests/test_queries.py::test_select[10]",
@@ -386,11 +395,12 @@ regression::
         candidate=1.2,
         change_percent=20.0,
         regression=True,
+        speedup=False,
     )
 
 ``ComparisonResult`` also has an ``attributes`` field, empty by default, an
-extension point for derived information beyond ``change_percent`` and
-``regression``, such as significance.  The models validate it as JSON data so
+extension point for derived information beyond ``change_percent``,
+``regression``, and ``speedup``, such as significance.  The models validate it as JSON data so
 it can be serialized without losing information.  A ``ComparisonReport`` holds the results of one test set and
 comparison target, see `Comparing with the history`_.
 

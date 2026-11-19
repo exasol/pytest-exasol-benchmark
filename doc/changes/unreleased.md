@@ -5,11 +5,11 @@
 Added versioned public models for benchmark artifacts, the Git-trackable
 benchmark-history layout, and comparison reports, data producer helpers which
 execute the generated benchmark-data SQL, an inspector for the size of an
-existing table, the `pytest-exasol-benchmark` executable with its `package`
-command and skeletons of its `compare` and `store` commands, storing runner
-artifacts as the benchmark history, normalizing pytest-benchmark JSON for
-comparisons, collecting downloaded runner artifacts for comparison with
-the history, and comparing them with the history.
+existing table, the `pytest-exasol-benchmark` executable with its `package`,
+`compare`, and `store` commands, storing runner artifacts as the benchmark
+history, normalizing pytest-benchmark JSON for comparisons, collecting
+downloaded runner artifacts for comparison with the history, and comparing
+them with the history, detecting regressions and suspicious speedups.
 
 ## Features
 
@@ -29,6 +29,11 @@ the history, and comparing them with the history.
 * #18: Added `compare_with_history`, `compare_collections`, and `aggregate_collection`,
   which compare runner benchmark with the checked-out history
 * #1: Added support for Python 3.14
+* #19: Implemented the `compare` and `store` commands. `compare` prints
+  regressions and suspicious speedups, and fails if either exceeds the larger
+  of the percentage threshold and 1 ms absolute floor. All
+  commands exit with 2 on operational errors. `store_history` also rejects test
+  sets whose runner executions hold different benchmarks or invalid statistics
 
 ## Bugfixes
 
@@ -54,6 +59,8 @@ the history, and comparing them with the history.
   artifact, and rejects execution directories without a manifest, symbolic links,
   and the history of a running or interrupted store
 * #47: Removed support for Python 3.10 and updated exasol-toolbox 12.0.0
+* #19: Moved `aggregate_collection` from `comparison` to the new module `aggregation`,
+  so `store_history` can validate test sets
 
 ## Dependency Updates
 
