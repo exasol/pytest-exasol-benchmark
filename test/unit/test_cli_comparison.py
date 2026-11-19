@@ -54,10 +54,11 @@ def test_load_comparison_reports_translates_file_system_errors(monkeypatch, tmp_
 
 def test_require_compared_reports_rejects_unmatched_history(tmp_path):
     """Comparison reports must contain at least one test set held by both sides."""
+    reports = [_missing_baseline_report()]
+    history_root = tmp_path / "history"
+
     with pytest.raises(_CommandError, match="holds none of the candidate"):
-        cli_comparison._require_compared_reports(
-            [_missing_baseline_report()], tmp_path / "history"
-        )
+        cli_comparison._require_compared_reports(reports, history_root)
 
 
 def test_write_comparison_reports_translates_file_system_errors(monkeypatch, tmp_path):
